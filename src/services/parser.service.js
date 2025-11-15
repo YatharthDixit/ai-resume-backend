@@ -1,5 +1,5 @@
 // src/services/parser.service.js
-// const pdf = require('pdf-parse'); // This is incorrect for the ESM version
+const pdf = require('pdf-parse'); // Back to the simple require
 const logger = require('../utils/logger');
 const ApiError = require('../utils/ApiError');
 const { StatusCodes } = require('http-status-codes');
@@ -11,9 +11,7 @@ const { StatusCodes } = require('http-status-codes');
  */
 const extractText = async (pdfBuffer) => {
   try {
-    // Dynamically import the ESM-only package
-    const { default: pdf } = await import('pdf-parse');
-    
+    // This will now work with the v1 package
     const data = await pdf(pdfBuffer);
     logger.info('PDF text extraction successful');
     return data.text;
