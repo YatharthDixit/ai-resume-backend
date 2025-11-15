@@ -10,29 +10,75 @@ const leaseParseJob = async () => {
   const query = {
     status: PROCESS_STATUS.PENDING,
     step: PROCESS_STEPS.PARSE,
-    leased_until: { $lt: new Date() }, // Find jobs where lease is expired
+    leased_until: { $lt: new Date() },
     attempt: { $lt: config.maxAttempts },
   };
 
   const update = {
     status: PROCESS_STATUS.RUNNING,
-    leased_until: new Date(Date.now() + config.leaseTtlMs), // Set new lease
-    $inc: { attempt: 1 }, // Increment attempt
+    leased_until: new Date(Date.now() + config.leaseTtlMs),
+    $inc: { attempt: 1 },
   };
 
-  // Find one job, update it, and return the *new* document
   const job = await Process.findOneAndUpdate(query, update, { new: true });
-  return job; // Will be null if no job was found
+  return job;
 };
 
+// --- NEW ---
 /**
- * Transitions a job from 'parse' to 'generate' step.
+ * Atomically finds and leases a 'generate' job from the queue.
  */
-const transitionToGenerate = async (processId) => {
+const leaseGenerateJob = async () => {
+  const query = {
+    status: PROCESS_STATUS.PENDING,
+    step: PROCESS_STEPS.GENERATE,
+    leased_until: { $lt: new Date() },
+    attempt: { $lt: config.maxAttempts },
+  };
+
+  const update = {
+    status: PROCESS_STATUS.RUNNING,
+    leased_until: new Date(Date.now() + config.leaseTtlMs),
+    $inc: { attempt: 1 },
+  };
+
+  const job = await Process.findOneAndUpdate(query, update, { new: true });
+  return job;
+};
+
+// --- MODIFIED ---
+/**
+ * Transitions a 'parse' job to the 'generate' step.
+ */
+const completeParseJob = async (processId) => {
   const update = {
     status: PROCESS_STATUS.PENDING,
     step: PROCESS_STEPS.GENERATE,
     leased_until: new Date(Date.now() - config.leaseTtlMs), // Make it immediately available
+  };
+  await Process.findByIdAndUpdate(processId, update);
+};
+
+// --- NEW ---
+/**
+ * Updates the progress of a 'generate' job.
+ */
+const updateChunkProgress = async (processId, chunkKey, error = null) => {
+  const update = error
+    ? { $push: { 'meta.chunk_errors': `${chunkKey}: ${error.message}` } }
+    : { $inc: { 'meta.chunks_completed': 1 } };
+
+  await Process.findByIdAndUpdate(processId, update);
+};
+
+// --- NEW ---
+/**
+ * Marks a 'generate' job as fully completed.
+ */
+const completeGenerateJob = async (processId) => {
+  const update = {
+    status: PROCESS_STATUS.COMPLETED,
+    leased_until: new Date(),
   };
   await Process.findByIdAndUpdate(processId, update);
 };
@@ -53,6 +99,9 @@ const failJob = async (processId, error) => {
 
 module.exports = {
   leaseParseJob,
-  transitionToGenerate,
+  leaseGenerateJob, // Export new
+  completeParseJob, // Renamed from transitionToGenerate
+  updateChunkProgress, // Export new
+  completeGenerateJob, // Export new
   failJob,
 };
