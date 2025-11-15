@@ -2,11 +2,13 @@
 const config = require('./config');
 const db = require('./config/db');
 const logger = require('./utils/logger');
-const path = require('path');
 const Run = require('./models/run.model');
+const fs = require('fs/promises'); // Import fs/promises
+const path = require('path'); // Import path
 const storageService = require('./services/storage.service');
 const parserService = require('./services/parser.service');
 const processService = require('./services/process.service');
+const generationService = require('./services/generation.service');
 const { PROCESS_STEPS } = require('./utils/constants');
 
 /**
@@ -52,12 +54,38 @@ const pollForParseJobs = async () => {
     await run.save();
 
     // 7. Transition the job to the 'generate' step
-    await processService.transitionToGenerate(job._id);
+    await processService.completeParseJob(job._id);
     logger.info(`[${job.runId}] Parse job complete. Ready for generation.`);
-  } catch (error) {
+} catch (error) {
     logger.error(error, `[${job?.runId}] Parse job failed`);
     if (job) {
-      // If we leased a job, mark it as failed
+      await processService.failJob(job._id, error);
+    }
+  }
+};
+
+/**
+ * Poller for 'generate' jobs
+ */
+const pollForGenerateJobs = async () => {
+  let job = null;
+  try {
+    // 1. Try to lease a 'generate' job
+    job = await processService.leaseGenerateJob();
+    if (!job) return;
+
+    logger.info(`[${job.runId}] Starting generation job...`);
+
+    // 2. Run the main generation logic
+    await generationService.runGeneration(job);
+
+    // 3. Mark the job as complete
+    await processService.completeGenerateJob(job._id);
+    logger.info(`[${job.runId}] Generation job successful.`);
+  } catch (error) {
+    logger.error(error, `[${job?.runId}] Generation job failed`);
+    if (job) {
+      // 3b. Mark as failed if an error occurs
       await processService.failJob(job._id, error);
     }
   }
@@ -67,16 +95,19 @@ const pollForParseJobs = async () => {
  * The main worker entry point.
  */
 logger.info('Starting WORKER process...');
-
 const main = async () => {
   await db.connect();
   logger.info('WORKER connected to MongoDB');
 
-  // Start the polling loop
+  // Start the polling loop for PARSE jobs
   logger.info(`Worker polling for [${PROCESS_STEPS.PARSE}] jobs...`);
   setInterval(pollForParseJobs, config.pollIntervalMs);
 
-  // In Phase 3, we will add a second poller for 'generate' jobs here
+  // Start the polling loop for GENERATE jobs
+  setTimeout(() => {
+    logger.info(`Worker polling for [${PROCESS_STEPS.GENERATE}] jobs...`);
+    setInterval(pollForGenerateJobs, config.pollIntervalMs);
+  }, 1000); // Start 1 second after the first poller
 };
 
 main().catch((err) => {
