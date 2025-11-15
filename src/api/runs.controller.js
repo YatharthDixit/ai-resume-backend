@@ -1,5 +1,6 @@
 // src/api/runs.controller.js
 const { StatusCodes } = require('http-status-codes');
+const path = require('path'); // Import Node's path module
 const storageService = require('../services/storage.service');
 const Run = require('../models/run.model');
 const Process = require('../models/process.model');
@@ -19,21 +20,28 @@ const createRun = async (req, res) => {
     instruction_text,
   });
 
-  // 2. Save it FIRST. This triggers the pre-save hook
-  // which generates runId and retention_until.
+  // 2. Save it FIRST to get the runId
   await run.save();
 
-  // 3. Now that run.runId exists, define the S3 key
-  const s3Key = `public/runs/${run.runId}/${run.originalFilename}`;
+  // 3. Define the *local* file path
+  // process.cwd() is the project root.
+  // This creates a path like '.../resume-backend/uploads/runs/run_123/resume.pdf'
+  const localKey = path.join(
+    process.cwd(),
+    'uploads',
+    'runs',
+    run.runId,
+    run.originalFilename
+  );
 
-  // 4. Upload file to S3 (or skip if using your bypass)
-  await storageService.upload(req.file.buffer, s3Key, req.file.mimetype);
+  // 4. "Upload" (save) the file locally
+  await storageService.upload(req.file.buffer, localKey, req.file.mimetype);
 
-  // 5. Add the S3 key to the doc and save AGAIN to update
-  run.originalPdfKey = s3Key;
+  // 5. Add the local key to the doc and save AGAIN
+  run.originalPdfKey = localKey; // Save the full absolute path
   await run.save();
 
-  // 6. Create the initial Process (job queue) doc
+  // 6. Create the initial Process doc
   await Process.create({
     runId: run.runId,
   });
