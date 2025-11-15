@@ -2,6 +2,7 @@
 const config = require('./config');
 const db = require('./config/db');
 const logger = require('./utils/logger');
+const path = require('path');
 const Run = require('./models/run.model');
 const storageService = require('./services/storage.service');
 const parserService = require('./services/parser.service');
@@ -34,8 +35,16 @@ const pollForParseJobs = async () => {
     // 4. Parse the PDF buffer
     const text = await parserService.extractText(pdfBuffer);
 
-    // 5. Upload the raw text back to S3
-    const textKey = `public/runs/${run.runId}/extracted_text.txt`;
+    // 5. Define the new path for the *extracted text*
+    const textKey = path.join(
+      process.cwd(),
+      'extracted_details', // <-- Save in 'extracted_details' folder
+      'runs',
+      run.runId,
+      'extracted_text.txt'
+    );
+
+    // 6. "Upload" (save) the raw text to the new local folder
     await storageService.upload(Buffer.from(text), textKey, 'text/plain');
 
     // 6. Update the Run doc with the new S3 key
