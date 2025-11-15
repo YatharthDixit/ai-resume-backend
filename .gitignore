@@ -14,5 +14,5 @@ logs
 /dist
 
 # Local file uploads
-/local_storage
+/uploads
 /extracted_details
