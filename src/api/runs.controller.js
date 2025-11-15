@@ -9,25 +9,27 @@ const logger = require('../utils/logger');
 const createRun = async (req, res) => {
   const { instruction_text } = req.body;
 
-  // 1. Check if file exists (Handled by Multer)
   if (!req.file) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'A PDF file is required.');
   }
 
-  // 2. Create the Run document in memory
-  // This triggers the pre-save hook to generate runId
+  // 1. Create the Run document
   const run = new Run({
     originalFilename: req.file.originalname,
     instruction_text,
   });
 
-  // 3. Define the S3 key (path)
+  // 2. Save it FIRST. This triggers the pre-save hook
+  // which generates runId and retention_until.
+  await run.save();
+
+  // 3. Now that run.runId exists, define the S3 key
   const s3Key = `public/runs/${run.runId}/${run.originalFilename}`;
 
-  // 4. Upload file to S3
+  // 4. Upload file to S3 (or skip if using your bypass)
   await storageService.upload(req.file.buffer, s3Key, req.file.mimetype);
 
-  // 5. Save the Run doc (now with the S3 key)
+  // 5. Add the S3 key to the doc and save AGAIN to update
   run.originalPdfKey = s3Key;
   await run.save();
 

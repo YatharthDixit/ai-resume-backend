@@ -11,6 +11,8 @@ const runSchema = new mongoose.Schema(
       type: String,
       unique: true,
       index: true,
+      // Use a default function to generate the ID
+      default: () => `run_${nanoid(10)}`,
     },
     originalPdfKey: {
       type: String,
@@ -35,20 +37,13 @@ const runSchema = new mongoose.Schema(
       type: Date,
       required: true,
       index: true,
+      // Use a default function to set the date
+      default: () => dayjs().add(config.retentionHours, 'hour').toDate(),
     },
   },
   { timestamps: true }
 );
 
-// Mongoose 'pre-save' hook to auto-fill fields on creation
-runSchema.pre('save', function (next) {
-  if (this.isNew) {
-    this.runId = `run_${nanoid(10)}`; // e.g., 'run_gYqC14F-P'
-    this.retention_until = dayjs()
-      .add(config.retentionHours, 'hour')
-      .toDate();
-  }
-  next();
-});
+// NO pre-save hook is needed. The 'default' handlers do the work.
 
 module.exports = mongoose.model('Run', runSchema);
