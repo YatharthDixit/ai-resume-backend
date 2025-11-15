@@ -4,10 +4,6 @@ const db = require('./config/db');
 const logger = require('./utils/logger');
 
 // Only run if ROLE is 'worker'
-if (config.role !== 'worker') {
-  logger.info(`Process ROLE is '${config.role}'. Worker will not start.`);
-  process.exit(0);
-}
 
 logger.info('Starting WORKER process...');
 
