@@ -5,7 +5,7 @@ const logger = require('../utils/logger');
 const ApiError = require('../utils/ApiError');
 const { StatusCodes } = require('http-status-codes');
 
-// Create a single, reusable S3 client instance
+// ... s3Client definition ...
 const s3Client = new S3Client({
   region: config.aws.region,
   credentials: {
@@ -18,6 +18,13 @@ const s3Client = new S3Client({
  * Uploads a file buffer to S3
  */
 const upload = async (fileBuffer, key, mimetype) => {
+  // --- START S3 BYPASS ---
+  // We are skipping the real S3 upload for local dev
+  logger.warn(`SKIPPING S3 UPLOAD for: ${key}`);
+  return { key };
+  // --- END S3 BYPASS ---
+
+  // The code below is now "dead code" but kept for reference
   const command = new PutObjectCommand({
     Bucket: config.aws.bucketName,
     Key: key,
@@ -38,7 +45,7 @@ const upload = async (fileBuffer, key, mimetype) => {
   }
 };
 
-// We will add 'download' in Phase 2
+// ... module.exports ...
 module.exports = {
   upload,
 };
