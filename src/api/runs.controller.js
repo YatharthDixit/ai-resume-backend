@@ -1,12 +1,20 @@
 // src/api/runs.controller.js
 const { StatusCodes } = require('http-status-codes');
-const path = require('path'); // Import Node's path module
+const path = require('path'); // Keep path for local storage
 const storageService = require('../services/storage.service');
 const Run = require('../models/run.model');
 const Process = require('../models/process.model');
+const Resume = require('../models/resume.model'); // <-- ADD THIS
+const rendererService = require('../services/renderer.service'); // <-- ADD THIS
 const ApiError = require('../utils/ApiError');
 const logger = require('../utils/logger');
+const { PROCESS_STATUS } = require('../utils/constants'); // <-- ADD THIS
 
+/**
+ * POST /runs
+ * Creates a new run
+ * (This is our existing function that saves to the 'uploads' folder)
+ */
 const createRun = async (req, res) => {
   const { instruction_text } = req.body;
 
@@ -28,7 +36,7 @@ const createRun = async (req, res) => {
   // This creates a path like '.../resume-backend/uploads/runs/run_123/resume.pdf'
   const localKey = path.join(
     process.cwd(),
-    'uploads',
+    'uploads', // Our 'uploads' folder
     'runs',
     run.runId,
     run.originalFilename
@@ -59,6 +67,72 @@ const createRun = async (req, res) => {
   });
 };
 
+/**
+ * GET /runs/:runId/status
+ * Polls for the status of a run
+ */
+const getRunStatus = async (req, res) => {
+  const { runId } = req.params;
+  const job = await Process.findOne({ runId });
+
+  if (!job) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Job not found.');
+  }
+
+  // Format the response as per the DOC
+  const response = {
+    runId: job.runId,
+    status: job.status,
+    step: job.step,
+    progress: {
+      total_chunks: job.meta.chunks_total,
+      completed_chunks: job.meta.chunks_completed,
+    },
+    error: job.lastError?.message || null,
+  };
+
+  res.status(StatusCodes.OK).send({
+    success: true,
+    data: response,
+  });
+};
+
+/**
+ * GET /runs/:runId/preview-html
+ * Fetches the generated HTML preview
+ */
+const getPreviewHtml = async (req, res) => {
+  const { runId } = req.params;
+
+  // 1. Find the *final result* from the resumes collection
+  const result = await Resume.findOne({ runId });
+
+  if (!result) {
+    // Check if the job is just not finished yet
+    const job = await Process.findOne({ runId });
+    if (job && job.status !== PROCESS_STATUS.COMPLETED) {
+      throw new ApiError(
+        StatusCodes.NOT_FOUND,
+        `Job is still ${job.status}. Preview not available.`
+      );
+    }
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Result not found.');
+  }
+
+  // 2. Generate the HTML string from the final_json
+  // We add the runId so logs are consistent
+  const htmlString = rendererService.generateHtmlString({
+    runId,
+    ...result.final_json,
+  });
+
+  // 3. Send the HTML as the response
+  res.setHeader('Content-Type', 'text/html');
+  res.status(StatusCodes.OK).send(htmlString);
+};
+
 module.exports = {
   createRun,
+  getRunStatus,
+  getPreviewHtml,
 };
