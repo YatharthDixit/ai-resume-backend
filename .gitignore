@@ -12,3 +12,6 @@ logs
 
 # Build output
 /dist
+
+# Local file uploads
+/uploads
