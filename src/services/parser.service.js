@@ -1,5 +1,5 @@
 // src/services/parser.service.js
-const pdfjs = require('pdfjs-dist/legacy/build/pdf.js'); // Corrected path
+const pdfjs = require('pdfjs-dist');
 const logger = require('../utils/logger');
 const ApiError = require('../utils/ApiError');
 const { StatusCodes } = require('http-status-codes');
@@ -8,8 +8,7 @@ const { StatusCodes } = require('http-status-codes');
   we can point it to the in-memory version that's bundled.
   This avoids a "Setting up fake worker" warning.
 */
-// Corrected path
-pdfjs.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
+pdfjs.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/build/pdf.worker.js';
 
 /**
  * Extracts raw text AND link annotations from a PDF buffer.
@@ -18,7 +17,11 @@ pdfjs.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
  */
 const extractText = async (pdfBuffer) => {
   try {
-    const doc = await pdfjs.getDocument({ data: pdfBuffer }).promise;
+    // Convert the Node.js Buffer to a Uint8Array, as required by pdfjs-dist
+    const uint8Array = new Uint8Array(pdfBuffer);
+
+    // Pass the Uint8Array to getDocument
+    const doc = await pdfjs.getDocument({ data: uint8Array }).promise;
     let fullText = '';
     const allLinks = [];
 
