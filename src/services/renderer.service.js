@@ -73,6 +73,22 @@ function generateHtmlString(data) {
       <ul>
         ${(exp.bullets || []).map((b) => `<li>${htmlEscape(b)}</li>`).join('\n')}
       </ul>
+      ${
+        // --- CHANGE: Added HTML block to render links ---
+        exp.links && exp.links.length > 0
+          ? `<div class="entry-links">
+              ${exp.links
+                .map(
+                  (link) =>
+                    `<a href="${htmlEscape(
+                      link.url
+                    )}" target="_blank">${htmlEscape(link.text)}</a>`
+                )
+                .join(' &bull; ')}
+            </div>`
+          : ''
+        // --- END CHANGE ---
+      }
     </div>
   `
     )
@@ -94,6 +110,22 @@ function generateHtmlString(data) {
       <ul>
         ${(proj.bullets || []).map((b) => `<li>${htmlEscape(b)}</li>`).join('\n')}
       </ul>
+      ${
+        // --- CHANGE: Added HTML block to render links ---
+        proj.links && proj.links.length > 0
+          ? `<div class="entry-links">
+              ${proj.links
+                .map(
+                  (link) =>
+                    `<a href="${htmlEscape(
+                      link.url
+                    )}" target="_blank">${htmlEscape(link.text)}</a>`
+                )
+                .join(' &bull; ')}
+            </div>`
+          : ''
+        // --- END CHANGE ---
+      }
     </div>
   `
     )
@@ -251,6 +283,28 @@ function generateHtmlString(data) {
         .skills-grid b {
             font-weight: 600;
         }
+
+        /* --- CHANGE: NEW STYLES FOR LINKS --- */
+        .entry-links {
+            margin-top: 8px;
+            font-size: 14px;
+        }
+        .entry-links a {
+            color: #0d6efd; /* Standard blue link color */
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .entry-links a:hover {
+            text-decoration: underline;
+        }
+        /* Use pseudo-elements for bullet separators */
+        .entry-links a:not(:last-child)::after {
+            content: ' \\2022 '; /* Unicode for bullet */
+            text-decoration: none;
+            color: #555;
+            padding: 0 0.5em;
+        }
+        /* --- END CHANGE --- */
     </style>
 </head>
 <body>
