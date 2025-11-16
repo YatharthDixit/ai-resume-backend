@@ -15,6 +15,40 @@ function htmlEscape(str) {
 }
 
 /**
+ * Builds the contact info line from the structured object
+ * @param {object} contact - The contactInfo object
+ * @returns {string} - HTML string for the contact info
+ */
+function buildContactHtml(contact = {}) {
+  const parts = [];
+  if (contact.location) {
+    parts.push(`<span>${htmlEscape(contact.location)}</span>`);
+  }
+  if (contact.phone) {
+    parts.push(`<span>${htmlEscape(contact.phone)}</span>`);
+  }
+  if (contact.email) {
+    parts.push(
+      `<a href="mailto:${htmlEscape(contact.email)}">${htmlEscape(
+        contact.email
+      )}</a>`
+    );
+  }
+  if (contact.linkedin) {
+    // Clean up URL for display
+    const linkedInUser = contact.linkedin
+      .replace(/https?:\/\/(www\.)?linkedin\.com\/in\//, '')
+      .replace(/\/$/, '');
+    parts.push(
+      `<a href="${htmlEscape(
+        contact.linkedin
+      )}" target="_blank">linkedin.com/in/${htmlEscape(linkedInUser)}</a>`
+    );
+  }
+  return parts.join(' &bull; ');
+}
+
+/**
  * Takes the JSON data and generates a full, self-contained HTML file.
  * (This is your function from script.js)
  * @param {object} data - The resume JSON object
@@ -24,9 +58,8 @@ function generateHtmlString(data) {
   logger.info(`[${data.runId || 'preview'}] Starting to build HTML...`);
 
   const name = htmlEscape(data.name || '');
-  const contactInfo = htmlEscape(data.contactInfo || '');
+  const contactInfo = buildContactHtml(data.contactInfo);
 
-  // --- Build Objective ---
   const objective = htmlEscape(data.objective || '');
   const objectiveSection = objective
     ? `
@@ -37,7 +70,6 @@ function generateHtmlString(data) {
   `
     : '';
 
-  // --- Build Education Entries ---
   const eduEntries = (data.education || [])
     .map(
       (edu) => `
@@ -63,10 +95,18 @@ function generateHtmlString(data) {
   // --- Build Experience Entries ---
   const expEntries = (data.experience || [])
     .map(
-      (exp) => `
+      (exp) => {
+        const titleText = htmlEscape(exp.role);
+        const title = exp.primaryLinkUrl
+          ? `<a href="${htmlEscape(
+              exp.primaryLinkUrl
+            )}" target="_blank" class="entry-title-link">${titleText}</a>`
+          : titleText;
+
+        return `
     <div class="entry">
       <div class="entry-header">
-        <span class="entry-title">${htmlEscape(exp.role)}</span>
+        <span class="entry-title">${title}</span>
         <span class="entry-date">${htmlEscape(exp.date)}</span>
       </div>
       <div class="entry-subtitle">${htmlEscape(exp.company)}</div>
@@ -74,7 +114,7 @@ function generateHtmlString(data) {
         ${(exp.bullets || []).map((b) => `<li>${htmlEscape(b)}</li>`).join('\n')}
       </ul>
       ${
-        // --- CHANGE: Added HTML block to render links ---
+        // Render secondary links
         exp.links && exp.links.length > 0
           ? `<div class="entry-links">
               ${exp.links
@@ -87,20 +127,28 @@ function generateHtmlString(data) {
                 .join(' &bull; ')}
             </div>`
           : ''
-        // --- END CHANGE ---
       }
     </div>
-  `
+  `;
+      }
     )
     .join('');
 
   // --- Build Project Entries ---
   const projEntries = (data.projects || [])
     .map(
-      (proj) => `
+      (proj) => {
+        const titleText = htmlEscape(proj.name);
+        const title = proj.primaryLinkUrl
+          ? `<a href="${htmlEscape(
+              proj.primaryLinkUrl
+            )}" target="_blank" class="entry-title-link">${titleText}</a>`
+          : titleText;
+
+        return `
     <div class="entry">
       <div class="entry-header">
-        <span class="entry-title">${htmlEscape(proj.name)}</span>
+        <span class="entry-title">${title}</span>
       </div>
       ${
         proj.description
@@ -111,7 +159,7 @@ function generateHtmlString(data) {
         ${(proj.bullets || []).map((b) => `<li>${htmlEscape(b)}</li>`).join('\n')}
       </ul>
       ${
-        // --- CHANGE: Added HTML block to render links ---
+        // Render secondary links
         proj.links && proj.links.length > 0
           ? `<div class="entry-links">
               ${proj.links
@@ -124,10 +172,10 @@ function generateHtmlString(data) {
                 .join(' &bull; ')}
             </div>`
           : ''
-        // --- END CHANGE ---
       }
     </div>
-  `
+  `;
+      }
     )
     .join('');
 
@@ -193,6 +241,13 @@ function generateHtmlString(data) {
             padding: 0;
             font-weight: 600;
         }
+        a {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
         
         /* --- HEADER --- */
         .header {
@@ -210,6 +265,13 @@ function generateHtmlString(data) {
         .header .contact-info {
             font-size: 14px;
             color: #555;
+        }
+        .header .contact-info a {
+            color: #555;
+            font-weight: 500;
+        }
+        .header .contact-info a:hover {
+            color: #0d6efd;
         }
 
         /* --- SECTION --- */
@@ -249,6 +311,14 @@ function generateHtmlString(data) {
             font-size: 16px;
             font-weight: 700;
         }
+        .entry-title-link {
+            color: #333; /* Make title link black like normal text */
+            text-decoration: none;
+        }
+        .entry-title-link:hover {
+            color: #0d6efd; /* On hover, change to blue */
+            text-decoration: underline;
+        }
         .entry-date {
             font-size: 15px;
             font-weight: 600;
@@ -284,7 +354,7 @@ function generateHtmlString(data) {
             font-weight: 600;
         }
 
-        /* --- CHANGE: NEW STYLES FOR LINKS --- */
+        /* --- STYLES FOR LINKS --- */
         .entry-links {
             margin-top: 8px;
             font-size: 14px;
@@ -304,49 +374,10 @@ function generateHtmlString(data) {
             color: #555;
             padding: 0 0.5em;
         }
-        /* --- END CHANGE --- */
     </style>
 </head>
 <body>
 
     <header class="header">
         <h1>${name}</h1>
-        <div class="contact-info">${contactInfo}</div>
-    </header>
-
-    <main>
-        ${objectiveSection}
-
-        <section class="section">
-            <h2>Education</h2>
-            ${eduEntries}
-        </section>
-
-        <section class="section">
-            <h2>Experience</h2>
-            ${expEntries}
-        </section>
-
-        <section class="section">
-            <h2>Projects</h2>
-            ${projEntries}
-        </section>
-
-        <section class="section">
-            <h2>Skills</h2>
-            ${skillsEntry}
-        </section>
-
-        ${certSection}
-
-        ${activitySection}
-    </main>
-
-</body>
-</html>
-  `;
-}
-
-module.exports = {
-  generateHtmlString,
-};
+        <div class="
