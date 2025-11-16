@@ -44,4 +44,11 @@ router.get(
   asyncHandler(runsController.getPreviewHtml)
 );
 
+// POST /api/v1/runs/:runId/render-pdf
+// This is the new endpoint for generating the PDF
+router.post(
+  '/:runId/render-pdf',
+  asyncHandler(runsController.renderPdf)
+);
+
 module.exports = router;
