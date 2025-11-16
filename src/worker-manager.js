@@ -3,8 +3,8 @@ const config = require('./config');
 const db = require('./config/db');
 const logger = require('./utils/logger');
 const Run = require('./models/run.model');
-const fs = require('fs/promises'); // Import fs/promises
-const path = require('path'); // Import path
+// const fs = require('fs/promises'); // <-- VER-BLOB: No longer needed
+// const path = require('path'); // <-- VER-BLOB: No longer needed
 const storageService = require('./services/storage.service');
 const parserService = require('./services/parser.service');
 const processService = require('./services/process.service');
@@ -31,22 +31,17 @@ const pollForParseJobs = async () => {
     const run = await Run.findOne({ runId: job.runId });
     if (!run) throw new Error('Associated Run document not found.');
 
-    // 3. Download the PDF from S3
+    // 3. Download the PDF from Vercel Blob
     const pdfBuffer = await storageService.download(run.originalPdfKey);
 
     // 4. Parse the PDF buffer
     const text = await parserService.extractText(pdfBuffer);
 
     // 5. Define the new path for the *extracted text*
-    const textKey = path.join(
-      process.cwd(),
-      'extracted_details', // <-- Save in 'extracted_details' folder
-      'runs',
-      run.runId,
-      'extracted_text.txt'
-    );
+    // VER-BLOB: This is now a cloud path for Vercel Blob
+    const textKey = `extracted_details/runs/${run.runId}/extracted_text.txt`;
 
-    // 6. "Upload" (save) the raw text to the new local folder
+    // 6. "Upload" (save) the raw text to Vercel Blob
     await storageService.upload(Buffer.from(text), textKey, 'text/plain');
 
     // 6. Update the Run doc with the new S3 key
