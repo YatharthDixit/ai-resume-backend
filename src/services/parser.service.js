@@ -1,5 +1,5 @@
 // src/services/parser.service.js
-const pdfjs = require('pdf.js-dist/legacy/build/pdf.js');
+const pdfjs = require('pdfjs-dist/legacy/build/pdf.js'); // Corrected path
 const logger = require('../utils/logger');
 const ApiError = require('../utils/ApiError');
 const { StatusCodes } = require('http-status-codes');
@@ -8,7 +8,8 @@ const { StatusCodes } = require('http-status-codes');
   we can point it to the in-memory version that's bundled.
   This avoids a "Setting up fake worker" warning.
 */
-pdfjs.GlobalWorkerOptions.workerSrc = 'pdf.js-dist/legacy/build/pdf.worker.js';
+// Corrected path
+pdfjs.GlobalWorkerOptions.workerSrc = 'pdfjs-dist/legacy/build/pdf.worker.js';
 
 /**
  * Extracts raw text AND link annotations from a PDF buffer.
@@ -53,7 +54,7 @@ const extractText = async (pdfBuffer) => {
     return fullText;
 
   } catch (error) {
-    logger.error(error, 'Failed to parse PDF with pdf.js-dist');
+    logger.error(error, 'Failed to parse PDF with pdfjs-dist');
     throw new ApiError(
       StatusCodes.INTERNAL_SERVER_ERROR,
       'Failed to parse PDF file.'
