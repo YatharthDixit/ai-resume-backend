@@ -1,452 +1,95 @@
-Here is the complete technical documentation for your Resume Optimizer project.
+# ResumeAI Backend
 
-This architecture is built to be a robust, scalable, and maintainable system, even for a-MVP. It integrates your script's "chunk-and-merge" logic directly into a formal backend with a separate job queue.
 
------
+A robust backend service for asynchronously processing, optimizing, and re-rendering PDF resumes using a Node.js worker-queue architecture and the Gemini LLM.
 
-### 1\. 🏛️ Project Architecture & Data Flow
+---
 
-This system is split into two main components that run from the **same codebase** but as **different processes**:
+## 🚀 Core Features
 
-1.  **WEB Process (`ROLE=web`):** A stateless Express.js API server. Its only job is to handle fast HTTP requests (like uploading the file and checking status). It does **not** do any heavy lifting (like parsing or calling Gemini).
-2.  **WORKER Process (`ROLE=worker`):** A background process. Its only job is to poll the MongoDB `processes` collection for work. It does all the heavy lifting: parsing PDFs, calling the Gemini API, and generating the final JSON.
+* **Asynchronous Job Processing:** Built with a separate **Web** and **Worker** process to handle long-running AI tasks without blocking the API.
+* **PDF Parsing:** Extracts raw text from uploaded PDF resumes using `pdf-parse`.
+* **AI-Powered Optimization:** Uses the Gemini API to analyze resume text against user instructions, following a "chunk-and-merge" logic for robust JSON generation.
+* **Stateless & Scalable:** Leverages **S3** for file storage (original PDF, extracted text), allowing both Web and Worker processes to be scaled independently.
+* **Dynamic Rendering:** Generates **HTML previews** and final **PDF downloads** from the structured JSON data using Puppeteer for high-fidelity output.
+* **Robust Validation:** Employs `zod` for strict, schema-based validation of all incoming API requests.
+* **Resilient LLM Calls:** Includes logic to rotate Gemini API keys on rate-limit (429) errors.
 
-This separation is critical. It means a 1-minute PDF parsing job on the `WORKER` will not block the `WEB` server, which can continue to serve status updates to the user.
+---
 
-#### 🔄 Core Data Flow:
+## 🏛️ Architecture Overview
 
-1.  **Upload:** User sends a `POST /api/v1/runs` request with the PDF and instructions to the `WEB` server.
-2.  **Triage:** The `WEB` server:
-      * Validates the request (using `zod`).
-      * Uploads the raw PDF to an **S3 bucket** (this is *required* for a stateless architecture).
-      * Creates a `Run` document (with a new `runId`).
-      * Creates a `Process` document (e.g., `step: 'parse', status: 'pending'`).
-      * Responds **immediately** with the `runId`.
-3.  **Job Pickup (Worker):** The `WORKER` process is polling the `processes` collection. It finds the `pending` job and atomically "leases" it.
-4.  **Parse Step (Worker):**
-      * The worker downloads the PDF from S3.
-      * Uses `pdf-parse` to get the raw text.
-      * Saves this raw text back to S3 (e.g., `public/runId/extracted_text.txt`).
-      * Updates the `Process` doc: `step: 'generate', status: 'running'`.
-5.  **Generate Step (Worker):**
-      * The worker downloads the raw text from S3.
-      * It loops through your `JSON_SCHEMA_CHUNKS`.
-      * For each chunk, it calls the `LLMService` (which rotates Gemini keys).
-      * It merges all JSON results into one `final_json` object.
-      * It saves this `final_json` to a new `Resume` document.
-      * It updates the `Process` doc: `status: 'completed'`.
-6.  **Preview (User):**
-      * The frontend, which has been polling `GET /api/v1/runs/:runId/status`, sees `completed`.
-      * It then calls `GET /api/v1/runs/:runId/preview-html`.
-      * The `WEB` server fetches the `final_json`, runs it through your `generateHtml` function, and returns a plain HTML string. The frontend renders this in a preview pane.
+This project runs as two distinct processes from the same codebase, orchestrated by a MongoDB database.
 
------
+1.  **`WEB` Process (`npm run dev`):** A stateless Express.js server.
+    * Handles all HTTP requests (file uploads, status checks).
+    * Validates input using `zod`.
+    * Uploads the raw PDF to S3.
+    * Creates `Run` and `Process` documents in MongoDB to queue the job.
+    * **Does not** perform any heavy processing.
 
-### 2\. 📦 Package.json (Dependencies)
+2.  **`WORKER` Process (`npm run worker`):** A background job processor.
+    * Polls the `processes` collection in MongoDB for `pending` jobs.
+    * Leases a job, downloads the PDF from S3, and parses the text.
+    * Performs the "chunk-and-merge" generation by calling the `LLMService` (Gemini).
+    * Saves the final `final_json` to a `Resume` document.
+    * Updates the job status to `completed` or `failed`.
 
-Here are the exact packages I recommend for this architecture.
+### 🔄 Data Flow
 
-```json
-{
-  "name": "resumeai-backend",
-  "version": "1.0.0",
-  "main": "src/server.js",
-  "scripts": {
-    "start": "node src/server.js",
-    "dev": "pino-colada | nodemon src/server.js",
-    "worker": "node src/worker-manager.js"
-  },
-  "dependencies": {
-    "@aws-sdk/client-s3": "^3.592.0",
-    "axios": "^1.7.2",
-    "cors": "^2.8.5",
-    "dayjs": "^1.11.11",
-    "dotenv": "^16.4.5",
-    "express": "^4.19.2",
-    "helmet": "^7.1.0",
-    "http-status-codes": "^2.3.0",
-    "mongoose": "^8.4.3",
-    "multer": "1.4.5-lts.1",
-    "nanoid": "^3.3.7",
-    "pdf-parse": "^1.1.1",
-    "pino": "^9.2.0",
-    "puppeteer": "^22.12.0",
-    "zod": "^3.23.8",
-    "zod-express-middleware": "^1.4.0"
-  },
-  "devDependencies": {
-    "nodemon": "^3.1.4",
-    "pino-colada": "^2.1.0"
-  }
-}
-```
+1.  User `POST /api/v1/runs` with a PDF to the **WEB** server.
+2.  **WEB** server uploads the PDF to S3, creates a `Run` job in MongoDB, and responds *immediately* with a `runId`.
+3.  **WORKER** process finds the `pending` job, downloads the PDF from S3, and parses it.
+4.  **WORKER** calls the Gemini API in chunks to build the `final_json`, then saves it to the `Resume` collection.
+5.  User's frontend polls `GET /api/v1/runs/:runId/status`.
+6.  Once status is `completed`, the user can fetch the `GET /.../preview-html` or `POST /.../render-pdf`.
 
-  * **`express` / `cors` / `helmet`:** Standard web server stack.
-  * **`mongoose`:** The best ODM for MongoDB.
-  * **`dotenv`:** Manages environment variables.
-  * **`zod` / `zod-express-middleware`:** Modern, powerful validation for API requests.
-  * **`pino`:** High-performance JSON logger.
-  * **`pino-colada`:** Makes pino logs readable in development.
-  * **`axios`:** Robust HTTP client for calling the Gemini API.
-  * **`@aws-sdk/client-s3`:** AWS S3 client for file storage.
-  * **`multer`:** Handles `multipart/form-data` (file uploads) in memory.
-  * **`pdf-parse`:** A lightweight, excellent library for extracting raw text from PDF buffers.
-  * **`puppeteer`:** The full-browser engine needed to render high-fidelity PDFs from your HTML.
-  * **`nanoid` (v3):** Generates short, secure, URL-friendly unique IDs (like `runId`).
-  * **`dayjs`:** Lightweight date/time library for lease management.
-  * **`http-status-codes`:** Provides readable constants for HTTP statuses (e.g., `StatusCodes.CREATED`).
+---
 
------
+## 🛠️ Tech Stack
 
-### 3\. 📂 File & Directory Structure
+* **Backend:** Node.js, Express.js
+* **Database:** MongoDB (with Mongoose)
+* **File Storage:** AWS S3
+* **PDF Parsing:** `pdf-parse`
+* **PDF Generation:** Puppeteer
+* **Validation:** Zod
+* **Job Queue:** Implemented via MongoDB (`process.model.js`)
+* **Logging:** Pino
+* **Environment:** dotenv
 
-This structure separates concerns clearly.
+---
 
-```
-/resumeai-backend/
-├─ package.json
-├─ .env
-├─ .env.example
-├─ .gitignore
-└─ /src
-   ├─ server.js            # WEB entry point: Starts Express server
-   ├─ worker-manager.js    # WORKER entry point: Starts the worker loop
-   │
-   ├─ /api                 # All API-related files
-   │  ├─ routes.js         # Main router (combines all other routes)
-   │  ├─ runs.controller.js  # Controller for /runs routes
-   │  ├─ runs.routes.js    # Defines /runs endpoints and links to controller
-   │  └─ runs.validation.js  # Zod schemas for validating /runs requests
-   │
-   ├─ /config
-   │  ├─ index.js          # Loads and exports all env vars (from config/index.js)
-   │  └─ db.js             # Mongoose connection logic
-   │
-   ├─ /models              # Mongoose schemas
-   │  ├─ run.model.js
-   │  ├─ process.model.js
-   │  └─ resume.model.js
-   │
-   ├─ /services            # The "brains" of the application
-   │  ├─ parser.service.js   # Logic for pdf-parse
-   │  ├─ storage.service.js  # Wrapper for S3 (upload, download, delete)
-   │  ├─ llm.service.js      # Gemini API client, key rotation
-   │  ├─ generation.service.js # Orchestrates the chunk-loop-merge logic
-   │  ├─ renderer.service.js # generateHtml and generatePdf logic
-   │  └─ process.service.js  # Logic to lease, update, and fail process docs
-   │
-   ├─ /middleware
-   │  ├─ errorHandler.js   # Global error handler
-   │  ├─ asyncHandler.js   # Wraps async controllers to catch errors
-   │  └─ validate.js       # Middleware that uses Zod schemas
-   │
-   ├─ /utils
-   │  ├─ logger.js         # Pino logger configuration
-   │  ├─ ApiError.js       # Custom error class
-   │  └─ constants.js      # Enums, retention times, etc.
-   │
-   └─ /libs
-      ├─ promptBuilder.js  # Your buildChunkPrompt function
-      └─ llmSchemas.js     # Your JSON_SCHEMA_CHUNKS object
-```
+## 🚀 Getting Started
 
------
+### Prerequisites
 
-### 4\. 🗃️ MongoDB Models (Mongoose Schemas)
+* [Node.js](https://nodejs.org/en/) (v18.x or later)
+* [npm](https://www.npmjs.com/)
+* [MongoDB](https://www.mongodb.com/try/download/community) (local or Atlas)
+* [AWS S3 Bucket](https://aws.amazon.com/s3/) and credentials
 
-These are the three core collections you'll need.
+### 1. Installation
 
-#### `run.model.js`
-
-*Tracks the high-level job request.*
-
-```javascript
-const mongoose = require('mongoose');
-
-const runSchema = new mongoose.Schema(
-  {
-    // Public-facing ID (e.g., 'run_gYqC14F-P')
-    runId: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-    },
-    // Original file info
-    originalPdfKey: {
-      type: String,
-      required: true,
-    },
-    originalFilename: {
-      type: String,
-      required: true,
-    },
-    // Raw text file info
-    extractedTextKey: {
-      type: String,
-    },
-    // User instructions
-    instruction_text: {
-      type: String,
-    },
-    // Quick-access status (synced from process.model)
-    status: {
-      type: String,
-      enum: ['pending', 'running', 'completed', 'failed'],
-      default: 'pending',
-      index: true,
-    },
-    // When this run and its files should be auto-deleted
-    retention_until: {
-      type: Date,
-      required: true,
-      index: true,
-    },
-  },
-  { timestamps: true } // Adds createdAt, updatedAt
-);
-
-module.exports = mongoose.model('Run', runSchema);
-```
-
-#### `process.model.js`
-
-*The "job queue" doc. Tracks the worker's state.*
-
-```javascript
-const mongoose = require('mongoose');
-
-const processSchema = new mongoose.Schema(
-  {
-    runId: {
-      type: String,
-      required: true,
-      index: true,
-    },
-    status: {
-      type: String,
-      enum: ['pending', 'running', 'completed', 'failed', 'cancelled'],
-      default: 'pending',
-      index: true,
-    },
-    step: {
-      type: String,
-      enum: ['parse', 'generate'],
-      default: 'parse',
-    },
-    attempt: {
-      type: Number,
-      default: 1,
-    },
-    lastError: {
-      message: String,
-      stack: String,
-    },
-    // --- Worker Leasing ---
-    assigned_worker: {
-      type: String, // A unique ID for the worker process
-      index: true,
-    },
-    leased_until: {
-      type: Date,
-      index: true,
-    },
-    // --- Progress Tracking ---
-    meta: {
-      chunks_total: { type: Number, default: 5 }, // Set based on llmSchemas.js
-      chunks_completed: { type: Number, default: 0 },
-      chunk_errors: [String], // Log errors for specific chunks
-    },
-  },
-  { timestamps: true }
-);
-
-// This is the most important index for the worker query
-processSchema.index({
-  status: 1,
-  leased_until: 1,
-  attempt: 1,
-});
-
-module.exports = mongoose.model('Process', processSchema);
-```
-
-#### `resume.model.js`
-
-*Stores the final output.*
-
-```javascript
-const mongoose = require('mongoose');
-
-const resumeSchema = new mongoose.Schema(
-  {
-    runId: {
-      type: String,
-      required: true,
-      unique: true,
-      index: true,
-    },
-    // The final, merged JSON from the GenerationService
-    final_json: {
-      type: Object,
-      required: true,
-    },
-  },
-  { timestamps: true }
-);
-
-module.exports = mongoose.model('Resume', resumeSchema);
-```
-
------
-
-### 5\. 🗺️ API Routes & Contracts
-
-All routes will be prefixed with `/api/v1`.
-
-#### `POST /runs`
-
-  * **Purpose:** The main endpoint to create a new optimization job.
-  * **Request:** `Content-Type: multipart/form-data`
-      * `file`: The PDF file (max 5MB).
-      * `instruction_text`: String (max 1000 chars).
-  * **Validation (`runs.validation.js`):**
-      * Uses `multer` to ensure `file` exists and is a PDF.
-      * Uses `zod` to validate `instruction_text`.
-  * **Response (202 Created):**
-    ```json
-    {
-      "success": true,
-      "data": {
-        "runId": "run_gYqC14F-P",
-        "status": "pending",
-        "message": "Your resume is being processed."
-      }
-    }
+1.  Clone the repository:
+    ```bash
+    git clone [https://github.com/your-username/resumeai-backend.git](https://github.com/your-username/resumeai-backend.git)
+    cd resumeai-backend
     ```
 
-#### `GET /runs/:runId/status`
-
-  * **Purpose:** The main polling endpoint for the frontend.
-  * **Request Params:** `runId` (e.g., `run_gYqC14F-P`)
-  * **Response (200 OK):**
-    ```json
-    {
-      "success": true,
-      "data": {
-        "runId": "run_gYqC14F-P",
-        "status": "running", // 'pending', 'running', 'completed', 'failed'
-        "step": "generate", // 'parse', 'generate'
-        "progress": {
-          "total_chunks": 5,
-          "completed_chunks": 2
-        },
-        "error": null // or "Failed to parse PDF."
-      }
-    }
+2.  Install dependencies:
+    ```bash
+    npm install
     ```
 
-#### `GET /runs/:runId/preview-html`
+### 2. Environment Configuration
 
-  * **Purpose:** Fetches the generated HTML preview for the right-side pane.
-  * **Request Params:** `runId`
-  * **Response (200 OK):**
-      * `Content-Type: text/html`
-      * **Body:** A raw HTML string (e.g., `<!DOCTYPE html>...`).
+1.  Copy the example environment file:
+    ```bash
+    cp .env.example .env
+    ```
 
-#### `POST /runs/:runId/render-pdf`
-
-  * **Purpose:** Triggers the download of the final, generated PDF.
-  * **Request Params:** `runId`
-  * **Response (200 OK):**
-      * `Content-Type: application/pdf`
-      * `Content-Disposition: attachment; filename="optimized-resume.pdf"`
-      * **Body:** The binary PDF stream.
-
------
-
-### 6\. 🛠️ Core Services & Logic
-
-This is the "how" for each service.
-
-  * **`storage.service.js`**
-
-      * Wraps the S3 client.
-      * `async upload(fileBuffer, key, mimetype)`: Uploads a buffer to S3.
-      * `async download(key)`: Downloads an object from S3 and returns it as a Buffer.
-      * `async getSignedUrl(key)`: (Optional) Generates a temporary URL to view the original PDF.
-
-  * **`parser.service.js`**
-
-      * `async extractText(pdfBuffer)`:
-          * Takes a `Buffer` (from `storage.service.download`).
-          * Calls `await pdf(pdfBuffer)`.
-          * Returns the `data.text` string.
-
-  * **`llm.service.js`**
-
-      * `const keys = config.llmApiKeys;`
-      * `let keyIndex = 0;`
-      * `async generateChunk(prompt)`:
-          * Implements the key rotation logic we discussed.
-          * It will try `keyIndex`, and if it gets a 429 error, it will increment `keyIndex` and try again with the next key.
-          * Uses `axios` to call the Gemini API.
-          * Returns the parsed JSON object from the response.
-
-  * **`generation.service.js`**
-
-      * `async runGeneration(process)`:
-          * This is the main orchestrator.
-          * `const schemas = require('../libs/llmSchemas').JSON_SCHEMA_CHUNKS;`
-          * `const rawText = await storage.download(run.extractedTextKey);`
-          * `let final_json = {};`
-          * `for (const key of Object.keys(schemas))`
-              * `const prompt = buildChunkPrompt(rawText, ...);`
-              * `try { const chunk = await llm.generateChunk(prompt); Object.assign(final_json, chunk); } catch (e) { ... }`
-              * `await process.updateOne({ ... 'meta.chunks_completed': ... });`
-          * `await Resume.create({ runId: process.runId, final_json });`
-
-  * **`renderer.service.js`**
-
-      * `generateHtmlString(jsonData)`:
-          * This is a **direct copy-paste** of your `generateHtml` function from `script.js`.
-      * `async generatePdfStream(htmlString)`:
-          * `const browser = await puppeteer.launch();`
-          * `const page = await browser.newPage();`
-          * `await page.setContent(htmlString);`
-          * `const pdfStream = await page.pdf({ format: 'A4' });`
-          * `await browser.close();`
-          * Returns the `pdfStream`.
-
------
-
-### 7\. 🚦 Middleware
-
-  * **`validate.js`:** A function that takes a `zod` schema. It runs `schema.parse(req)`, and if it fails, it passes the formatted error to the global error handler.
-  * **`errorHandler.js`:** A global error handler (`(err, req, res, next)`). It logs the error and sends a standardized JSON error response, so you don't leak stack traces.
-  * **`asyncHandler.js`:** A simple wrapper `(fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);`. You will wrap all your async controller functions in this.
-
------
-
-### 8\. 📄 Common Files & Utilities
-
-  * **`utils/constants.js`**
-      * `PROCESS_STEPS = { PARSE: 'parse', GENERATE: 'generate' }`
-      * `PROCESS_STATUS = { PENDING: 'pending', RUNNING: 'running', ... }`
-      * `LEASE_TTL_MS = 90 * 1000` (90 seconds)
-      * `MAX_ATTEMPTS = 3`
-  * **`config/index.js`**
-      * Loads all variables from `.env` and validates them.
-      * Parses `LLM_API_KEYS` from a comma-separated string into an array.
-  * **`libs/llmSchemas.js`:** Exports `JSON_SCHEMA_CHUNKS`.
-  * **`libs/promptBuilder.js`:** Exports `buildChunkPrompt`.
-  * **`utils/logger.js`:** Configures and exports the `pino` logger.
-
------
-
-### 9\. 🔒 Environment Variables (`.env.example`)
-
-This is the complete list of secrets and configs your application will need.
+2.  Open `.env` and fill in all the required values (MongoDB URI, S3 credentials, Gemini API keys).
 
 ```ini
 # ------------------------------
@@ -483,6 +126,92 @@ DEFAULT_RETENTION_HOURS=24
 # ------------------------------
 # A comma-separated list of your free API keys
 LLM_API_KEYS="key-one,key-two,key-three"
-LLM_MODEL="gemini-1.5-flash" # Your script used '2.5-flash', I'll use '1.5-flash' as it's more common
+LLM_MODEL="gemini-1.5-flash"
 LLM_TIMEOUT_MS=60000
+````
+
+### 3\. Running the Application
+
+This project requires **two terminals** to run in development.
+
+**In Terminal 1, run the WEB server:**
+
+```bash
+npm run dev
 ```
+
+> This starts the Express API server on the port specified in your `.env` (e.g., `http://localhost:8080`).
+
+**In Terminal 2, run the WORKER process:**
+
+```bash
+npm run worker
+```
+
+> This starts the background worker, which will begin polling MongoDB for jobs.
+
+-----
+
+## 🗺️ API Endpoints
+
+All routes are prefixed with `/api/v1`.
+
+| Method | Endpoint | Description |
+| :--- | :--- | :--- |
+| `POST` | `/runs` | Creates a new resume optimization job. Requires `multipart/form-data` with a `file` and `instruction_text`. |
+| `GET` | `/runs/:runId/status` | Polls for the status of a job. Returns `status`, `step`, and `progress`. |
+| `GET` | `/runs/:runId/preview-html` | Returns the raw HTML preview of the optimized resume. |
+| `POST` | `/runs/:runId/render-pdf` | Generates and returns the final, optimized resume as a PDF file download. |
+
+-----
+
+## 📂 Project Structure
+
+```
+/resumeai-backend/
+├─ package.json
+├─ .env
+├─ .env.example
+└─ /src
+   ├─ server.js            # WEB entry point (Express)
+   ├─ worker-manager.js    # WORKER entry point (Job polling)
+   │
+   ├─ /api                 # Express routing
+   │  ├─ routes.js
+   │  ├─ runs.controller.js
+   │  ├─ runs.routes.js
+   │  └─ runs.validation.js  # Zod schemas
+   │
+   ├─ /config
+   │  ├─ index.js          # Loads .env config
+   │  └─ db.js             # Mongoose connection
+   │
+   ├─ /models              # Mongoose schemas
+   │  ├─ run.model.js
+   │  ├─ process.model.js  # The job queue model
+   │  └─ resume.model.js   # Stores final JSON
+   │
+   ├─ /services            # Core business logic
+   │  ├─ parser.service.js   # pdf-parse logic
+   │  ├─ storage.service.js  # S3 wrapper
+   │  ├─ llm.service.js      # Gemini API client
+   │  ├─ generation.service.js # Chunk-loop-merge logic
+   │  ├─ renderer.service.js # HTML/PDF generation
+   │  └─ process.service.js  # Job leasing logic
+   │
+   ├─ /middleware
+   │  ├─ errorHandler.js
+   │  ├─ asyncHandler.js
+   │  └─ validate.js
+   │
+   ├─ /utils
+   │  ├─ logger.js         # Pino logger
+   │  ├─ ApiError.js
+   │  └─ constants.js
+   │
+   └─ /libs
+      ├─ promptBuilder.js  # buildChunkPrompt()
+      └─ llmSchemas.js     # JSON_SCHEMA_CHUNKS
+```
+
+-----
