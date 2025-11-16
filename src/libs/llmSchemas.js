@@ -7,7 +7,12 @@
 const JSON_SCHEMA_CHUNKS = {
   header: `{
     "name": "string (candidate's full name)",
-    "contactInfo": "string (single line: City, State | Phone | Email | LinkedIn)",
+    "contactInfo": {
+      "location": "string (e.g., City, State)",
+      "phone": "string (Phone number)",
+      "email": "string (Email address)",
+      "linkedin": "string (Full LinkedIn URL)"
+    },
     "objective": "string (A brief 1-2 sentence career objective, if present)"
   }`,
   education: `{
@@ -26,9 +31,10 @@ const JSON_SCHEMA_CHUNKS = {
         "role": "string (Job Title)",
         "date": "string (e.g., Month 20XX - Present)",
         "bullets": ["string (achievement 1)", "string (achievement 2)"],
+        "primaryLinkUrl": "string (Optional: The single most important URL for this job, e.g., company website)",
         "links": [
           {
-            "text": "string (e.g., 'Company Website', 'Project Link')",
+            "text": "string (e.g., 'Project Link', 'Reference')",
             "url": "string (Full URL)"
           }
         ]
@@ -41,6 +47,7 @@ const JSON_SCHEMA_CHUNKS = {
         "name": "string (Project Name)",
         "description": "string (Brief description or technologies)",
         "bullets": ["string (what you did)", "string (what you did 2)"],
+        "primaryLinkUrl": "string (Optional: The single most important URL for this project, e.g., the GitHub repo)",
         "links": [
           {
             "text": "string (e.g., 'GitHub', 'Live Demo')",
