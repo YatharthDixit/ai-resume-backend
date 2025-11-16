@@ -14,6 +14,7 @@ function htmlEscape(str) {
     .replace(/'/g, '&#039;');
 }
 
+// --- MODULAR_LINKS CHANGE: Helper to build the contact info ---
 /**
  * Builds the contact info line from the structured object
  * @param {object} contact - The contactInfo object
@@ -47,6 +48,7 @@ function buildContactHtml(contact = {}) {
   }
   return parts.join(' &bull; ');
 }
+// --- END CHANGE ---
 
 /**
  * Takes the JSON data and generates a full, self-contained HTML file.
@@ -58,8 +60,11 @@ function generateHtmlString(data) {
   logger.info(`[${data.runId || 'preview'}] Starting to build HTML...`);
 
   const name = htmlEscape(data.name || '');
+  // --- MODULAR_LINKS CHANGE: Use the new builder function ---
   const contactInfo = buildContactHtml(data.contactInfo);
+  // --- END CHANGE ---
 
+  // --- Build Objective ---
   const objective = htmlEscape(data.objective || '');
   const objectiveSection = objective
     ? `
@@ -70,6 +75,7 @@ function generateHtmlString(data) {
   `
     : '';
 
+  // --- Build Education Entries ---
   const eduEntries = (data.education || [])
     .map(
       (edu) => `
@@ -96,12 +102,14 @@ function generateHtmlString(data) {
   const expEntries = (data.experience || [])
     .map(
       (exp) => {
+        // --- MODULAR_LINKS CHANGE: Check for primaryLinkUrl to make title a link ---
         const titleText = htmlEscape(exp.role);
         const title = exp.primaryLinkUrl
           ? `<a href="${htmlEscape(
               exp.primaryLinkUrl
             )}" target="_blank" class="entry-title-link">${titleText}</a>`
           : titleText;
+        // --- END CHANGE ---
 
         return `
     <div class="entry">
@@ -138,12 +146,14 @@ function generateHtmlString(data) {
   const projEntries = (data.projects || [])
     .map(
       (proj) => {
+        // --- MODULAR_LINKS CHANGE: Check for primaryLinkUrl to make title a link ---
         const titleText = htmlEscape(proj.name);
         const title = proj.primaryLinkUrl
           ? `<a href="${htmlEscape(
               proj.primaryLinkUrl
             )}" target="_blank" class="entry-title-link">${titleText}</a>`
           : titleText;
+        // --- END CHANGE ---
 
         return `
     <div class="entry">
@@ -241,6 +251,7 @@ function generateHtmlString(data) {
             padding: 0;
             font-weight: 600;
         }
+        /* --- MODULAR_LINKS CHANGE: Add styles for header links --- */
         a {
             color: #0d6efd;
             text-decoration: none;
@@ -248,6 +259,7 @@ function generateHtmlString(data) {
         a:hover {
             text-decoration: underline;
         }
+        /* --- END CHANGE --- */
         
         /* --- HEADER --- */
         .header {
@@ -266,6 +278,7 @@ function generateHtmlString(data) {
             font-size: 14px;
             color: #555;
         }
+        /* --- MODULAR_LINKS CHANGE: Style header links --- */
         .header .contact-info a {
             color: #555;
             font-weight: 500;
@@ -273,6 +286,7 @@ function generateHtmlString(data) {
         .header .contact-info a:hover {
             color: #0d6efd;
         }
+        /* --- END CHANGE --- */
 
         /* --- SECTION --- */
         .section {
@@ -311,6 +325,7 @@ function generateHtmlString(data) {
             font-size: 16px;
             font-weight: 700;
         }
+        /* --- MODULAR_LINKS CHANGE: Style for linked titles --- */
         .entry-title-link {
             color: #333; /* Make title link black like normal text */
             text-decoration: none;
@@ -319,6 +334,7 @@ function generateHtmlString(data) {
             color: #0d6efd; /* On hover, change to blue */
             text-decoration: underline;
         }
+        /* --- END CHANGE --- */
         .entry-date {
             font-size: 15px;
             font-weight: 600;
@@ -380,4 +396,42 @@ function generateHtmlString(data) {
 
     <header class="header">
         <h1>${name}</h1>
-        <div class="
+        <div class="contact-info">${contactInfo}</div>
+    </header>
+
+    <main>
+        ${objectiveSection}
+
+        <section class="section">
+            <h2>Education</h2>
+            ${eduEntries}
+        </section>
+
+        <section class="section">
+            <h2>Experience</h2>
+            ${expEntries}
+        </section>
+
+        <section class="section">
+            <h2>Projects</h2>
+            ${projEntries}
+        </section>
+
+        <section class="section">
+            <h2>Skills</h2>
+            ${skillsEntry}
+        </section>
+
+        ${certSection}
+
+        ${activitySection}
+    </main>
+
+</body>
+</html>
+  `;
+}
+
+module.exports = {
+  generateHtmlString,
+};
