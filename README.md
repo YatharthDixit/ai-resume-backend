@@ -1,5 +1,5 @@
-# ResumeAI Backend
 
+# ResumeAI Backend
 
 A robust backend service for asynchronously processing, optimizing, and re-rendering PDF resumes using a Node.js worker-queue architecture and the Gemini LLM.
 
@@ -8,7 +8,7 @@ A robust backend service for asynchronously processing, optimizing, and re-rende
 ## 🚀 Core Features
 
 * **Asynchronous Job Processing:** Built with a separate **Web** and **Worker** process to handle long-running AI tasks without blocking the API.
-* **PDF Parsing:** Extracts raw text from uploaded PDF resumes using `pdf-parse`.
+* **PDF Parsing:** Extracts raw text and hyperlinks from uploaded PDF resumes using `pdfjs-dist`.
 * **AI-Powered Optimization:** Uses the Gemini API to analyze resume text against user instructions, following a "chunk-and-merge" logic for robust JSON generation.
 * **Stateless & Scalable:** Leverages **S3** for file storage (original PDF, extracted text), allowing both Web and Worker processes to be scaled independently.
 * **Dynamic Rendering:** Generates **HTML previews** and final **PDF downloads** from the structured JSON data using Puppeteer for high-fidelity output.
@@ -30,7 +30,7 @@ This project runs as two distinct processes from the same codebase, orchestrated
 
 2.  **`WORKER` Process (`npm run worker`):** A background job processor.
     * Polls the `processes` collection in MongoDB for `pending` jobs.
-    * Leases a job, downloads the PDF from S3, and parses the text.
+    * Leases a job, downloads the PDF from S3, and parses the text using the `ParserService`.
     * Performs the "chunk-and-merge" generation by calling the `LLMService` (Gemini).
     * Saves the final `final_json` to a `Resume` document.
     * Updates the job status to `completed` or `failed`.
@@ -51,7 +51,7 @@ This project runs as two distinct processes from the same codebase, orchestrated
 * **Backend:** Node.js, Express.js
 * **Database:** MongoDB (with Mongoose)
 * **File Storage:** AWS S3
-* **PDF Parsing:** `pdf-parse`
+* **PDF Parsing:** `pdfjs-dist`
 * **PDF Generation:** Puppeteer
 * **Validation:** Zod
 * **Job Queue:** Implemented via MongoDB (`process.model.js`)
@@ -73,14 +73,15 @@ This project runs as two distinct processes from the same codebase, orchestrated
 
 1.  Clone the repository:
     ```bash
-    git clone [https://github.com/your-username/resumeai-backend.git](https://github.com/your-username/resumeai-backend.git)
-    cd resumeai-backend
+    git clone https://github.com/YatharthDixit/ai-resume-backend.git
+    cd ai-resume-backend
     ```
 
 2.  Install dependencies:
     ```bash
     npm install
     ```
+    *(Note: Your `package.json` should include `pdfjs-dist` instead of `pdf-parse`)*.
 
 ### 2. Environment Configuration
 
@@ -192,7 +193,7 @@ All routes are prefixed with `/api/v1`.
    │  └─ resume.model.js   # Stores final JSON
    │
    ├─ /services            # Core business logic
-   │  ├─ parser.service.js   # pdf-parse logic
+   │  ├─ parser.service.js   # pdfjs-dist logic
    │  ├─ storage.service.js  # S3 wrapper
    │  ├─ llm.service.js      # Gemini API client
    │  ├─ generation.service.js # Chunk-loop-merge logic
@@ -214,4 +215,3 @@ All routes are prefixed with `/api/v1`.
       └─ llmSchemas.js     # JSON_SCHEMA_CHUNKS
 ```
 
------
