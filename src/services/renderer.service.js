@@ -14,6 +14,42 @@ function htmlEscape(str) {
     .replace(/'/g, '&#039;');
 }
 
+// --- MODULAR_LINKS CHANGE: Helper to build the contact info ---
+/**
+ * Builds the contact info line from the structured object
+ * @param {object} contact - The contactInfo object
+ * @returns {string} - HTML string for the contact info
+ */
+function buildContactHtml(contact = {}) {
+  const parts = [];
+  if (contact.location) {
+    parts.push(`<span>${htmlEscape(contact.location)}</span>`);
+  }
+  if (contact.phone) {
+    parts.push(`<span>${htmlEscape(contact.phone)}</span>`);
+  }
+  if (contact.email) {
+    parts.push(
+      `<a href="mailto:${htmlEscape(contact.email)}">${htmlEscape(
+        contact.email
+      )}</a>`
+    );
+  }
+  if (contact.linkedin) {
+    // Clean up URL for display
+    const linkedInUser = contact.linkedin
+      .replace(/https?:\/\/(www\.)?linkedin\.com\/in\//, '')
+      .replace(/\/$/, '');
+    parts.push(
+      `<a href="${htmlEscape(
+        contact.linkedin
+      )}" target="_blank">linkedin.com/in/${htmlEscape(linkedInUser)}</a>`
+    );
+  }
+  return parts.join(' &bull; ');
+}
+// --- END CHANGE ---
+
 /**
  * Takes the JSON data and generates a full, self-contained HTML file.
  * (This is your function from script.js)
@@ -24,7 +60,9 @@ function generateHtmlString(data) {
   logger.info(`[${data.runId || 'preview'}] Starting to build HTML...`);
 
   const name = htmlEscape(data.name || '');
-  const contactInfo = htmlEscape(data.contactInfo || '');
+  // --- MODULAR_LINKS CHANGE: Use the new builder function ---
+  const contactInfo = buildContactHtml(data.contactInfo);
+  // --- END CHANGE ---
 
   // --- Build Objective ---
   const objective = htmlEscape(data.objective || '');
@@ -63,28 +101,64 @@ function generateHtmlString(data) {
   // --- Build Experience Entries ---
   const expEntries = (data.experience || [])
     .map(
-      (exp) => `
+      (exp) => {
+        // --- MODULAR_LINKS CHANGE: Check for primaryLinkUrl to make title a link ---
+        const titleText = htmlEscape(exp.role);
+        const title = exp.primaryLinkUrl
+          ? `<a href="${htmlEscape(
+              exp.primaryLinkUrl
+            )}" target="_blank" class="entry-title-link">${titleText}</a>`
+          : titleText;
+        // --- END CHANGE ---
+
+        return `
     <div class="entry">
       <div class="entry-header">
-        <span class="entry-title">${htmlEscape(exp.role)}</span>
+        <span class="entry-title">${title}</span>
         <span class="entry-date">${htmlEscape(exp.date)}</span>
       </div>
       <div class="entry-subtitle">${htmlEscape(exp.company)}</div>
       <ul>
         ${(exp.bullets || []).map((b) => `<li>${htmlEscape(b)}</li>`).join('\n')}
       </ul>
+      ${
+        // Render secondary links
+        exp.links && exp.links.length > 0
+          ? `<div class="entry-links">
+              ${exp.links
+                .map(
+                  (link) =>
+                    `<a href="${htmlEscape(
+                      link.url
+                    )}" target="_blank">${htmlEscape(link.text)}</a>`
+                )
+                .join(' &bull; ')}
+            </div>`
+          : ''
+      }
     </div>
-  `
+  `;
+      }
     )
     .join('');
 
   // --- Build Project Entries ---
   const projEntries = (data.projects || [])
     .map(
-      (proj) => `
+      (proj) => {
+        // --- MODULAR_LINKS CHANGE: Check for primaryLinkUrl to make title a link ---
+        const titleText = htmlEscape(proj.name);
+        const title = proj.primaryLinkUrl
+          ? `<a href="${htmlEscape(
+              proj.primaryLinkUrl
+            )}" target="_blank" class="entry-title-link">${titleText}</a>`
+          : titleText;
+        // --- END CHANGE ---
+
+        return `
     <div class="entry">
       <div class="entry-header">
-        <span class="entry-title">${htmlEscape(proj.name)}</span>
+        <span class="entry-title">${title}</span>
       </div>
       ${
         proj.description
@@ -94,8 +168,24 @@ function generateHtmlString(data) {
       <ul>
         ${(proj.bullets || []).map((b) => `<li>${htmlEscape(b)}</li>`).join('\n')}
       </ul>
+      ${
+        // Render secondary links
+        proj.links && proj.links.length > 0
+          ? `<div class="entry-links">
+              ${proj.links
+                .map(
+                  (link) =>
+                    `<a href="${htmlEscape(
+                      link.url
+                    )}" target="_blank">${htmlEscape(link.text)}</a>`
+                )
+                .join(' &bull; ')}
+            </div>`
+          : ''
+      }
     </div>
-  `
+  `;
+      }
     )
     .join('');
 
@@ -161,6 +251,15 @@ function generateHtmlString(data) {
             padding: 0;
             font-weight: 600;
         }
+        /* --- MODULAR_LINKS CHANGE: Add styles for header links --- */
+        a {
+            color: #0d6efd;
+            text-decoration: none;
+        }
+        a:hover {
+            text-decoration: underline;
+        }
+        /* --- END CHANGE --- */
         
         /* --- HEADER --- */
         .header {
@@ -179,6 +278,15 @@ function generateHtmlString(data) {
             font-size: 14px;
             color: #555;
         }
+        /* --- MODULAR_LINKS CHANGE: Style header links --- */
+        .header .contact-info a {
+            color: #555;
+            font-weight: 500;
+        }
+        .header .contact-info a:hover {
+            color: #0d6efd;
+        }
+        /* --- END CHANGE --- */
 
         /* --- SECTION --- */
         .section {
@@ -217,6 +325,16 @@ function generateHtmlString(data) {
             font-size: 16px;
             font-weight: 700;
         }
+        /* --- MODULAR_LINKS CHANGE: Style for linked titles --- */
+        .entry-title-link {
+            color: #333; /* Make title link black like normal text */
+            text-decoration: none;
+        }
+        .entry-title-link:hover {
+            color: #0d6efd; /* On hover, change to blue */
+            text-decoration: underline;
+        }
+        /* --- END CHANGE --- */
         .entry-date {
             font-size: 15px;
             font-weight: 600;
@@ -250,6 +368,27 @@ function generateHtmlString(data) {
         }
         .skills-grid b {
             font-weight: 600;
+        }
+
+        /* --- STYLES FOR LINKS --- */
+        .entry-links {
+            margin-top: 8px;
+            font-size: 14px;
+        }
+        .entry-links a {
+            color: #0d6efd; /* Standard blue link color */
+            text-decoration: none;
+            font-weight: 600;
+        }
+        .entry-links a:hover {
+            text-decoration: underline;
+        }
+        /* Use pseudo-elements for bullet separators */
+        .entry-links a:not(:last-child)::after {
+            content: ' \\2022 '; /* Unicode for bullet */
+            text-decoration: none;
+            color: #555;
+            padding: 0 0.5em;
         }
     </style>
 </head>
