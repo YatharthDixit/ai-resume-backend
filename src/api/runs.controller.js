@@ -1,20 +1,19 @@
 // src/api/runs.controller.js
 const { StatusCodes } = require('http-status-codes');
-const path = require('path'); // Keep path for local storage
+// const path = require('path'); // <-- VER-BLOB: No longer needed for local paths
 const storageService = require('../services/storage.service');
 const Run = require('../models/run.model');
 const Process = require('../models/process.model');
-const Resume = require('../models/resume.model'); // <-- ADD THIS
-const rendererService = require('../services/renderer.service'); // <-- ADD THIS
-const pdfService = require('../services/pdf.service'); // <-- ADD THE NEW PDF SERVICE
+const Resume = require('../models/resume.model');
+const rendererService = require('../services/renderer.service');
+const pdfService = require('../services/pdf.service');
 const ApiError = require('../utils/ApiError');
 const logger = require('../utils/logger');
-const { PROCESS_STATUS } = require('../utils/constants'); // <-- ADD THIS
+const { PROCESS_STATUS } = require('../utils/constants');
 
 /**
  * POST /runs
  * Creates a new run
- * (This is our existing function that saves to the 'uploads' folder)
  */
 const createRun = async (req, res) => {
   const { instruction_text } = req.body;
@@ -32,22 +31,15 @@ const createRun = async (req, res) => {
   // 2. Save it FIRST to get the runId
   await run.save();
 
-  // 3. Define the *local* file path
-  // process.cwd() is the project root.
-  // This creates a path like '.../resume-backend/uploads/runs/run_123/resume.pdf'
-  const localKey = path.join(
-    process.cwd(),
-    'uploads', // Our 'uploads' folder
-    'runs',
-    run.runId,
-    run.originalFilename
-  );
+  // 3. Define the *Blob* path (key)
+  // VER-BLOB: This is now a cloud path, not a local file system path.
+  const blobKey = `runs/${run.runId}/${run.originalFilename}`;
 
-  // 4. "Upload" (save) the file locally
-  await storageService.upload(req.file.buffer, localKey, req.file.mimetype);
+  // 4. "Upload" (save) the file to Vercel Blob
+  await storageService.upload(req.file.buffer, blobKey, req.file.mimetype);
 
-  // 5. Add the local key to the doc and save AGAIN
-  run.originalPdfKey = localKey; // Save the full absolute path
+  // 5. Add the blob key to the doc and save AGAIN
+  run.originalPdfKey = blobKey; // Save the blob path
   await run.save();
 
   // 6. Create the initial Process doc
@@ -169,5 +161,5 @@ module.exports = {
   createRun,
   getRunStatus,
   getPreviewHtml,
-  renderPdf, // <-- Export the new function
+  renderPdf,
 };
