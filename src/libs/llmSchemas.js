@@ -25,7 +25,13 @@ const JSON_SCHEMA_CHUNKS = {
         "company": "string (Company Name, City, State)",
         "role": "string (Job Title)",
         "date": "string (e.g., Month 20XX - Present)",
-        "bullets": ["string (achievement 1)", "string (achievement 2)"]
+        "bullets": ["string (achievement 1)", "string (achievement 2)"],
+        "links": [
+          {
+            "text": "string (e.g., 'Company Website', 'Project Link')",
+            "url": "string (Full URL)"
+          }
+        ]
       }
     ]
   }`,
@@ -34,7 +40,13 @@ const JSON_SCHEMA_CHUNKS = {
       {
         "name": "string (Project Name)",
         "description": "string (Brief description or technologies)",
-        "bullets": ["string (what you did)", "string (what you did 2)"]
+        "bullets": ["string (what you did)", "string (what you did 2)"],
+        "links": [
+          {
+            "text": "string (e.g., 'GitHub', 'Live Demo')",
+            "url": "string (Full URL)"
+          }
+        ]
       }
     ]
   }`,
