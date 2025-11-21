@@ -3,111 +3,158 @@ const config = require('./config');
 const db = require('./config/db');
 const logger = require('./utils/logger');
 const Run = require('./models/run.model');
-const fs = require('fs/promises'); // Import fs/promises
-const path = require('path'); // Import path
+const Process = require('./models/process.model');
+const sqsService = require('./services/sqs.service');
 const storageService = require('./services/storage.service');
 const parserService = require('./services/parser.service');
 const processService = require('./services/process.service');
 const generationService = require('./services/generation.service');
-const { PROCESS_STEPS } = require('./utils/constants');
+const { PROCESS_STATUS } = require('./utils/constants');
 
 /**
- * The main polling function that looks for 'parse' jobs.
+ * Polls SQS for new jobs.
  */
-const pollForParseJobs = async () => {
-  let job = null;
+const pollSQS = async () => {
   try {
-    // 1. Try to lease a job
-    job = await processService.leaseParseJob();
+    // 1. Receive messages from SQS (long polling)
+    const messages = await sqsService.receiveMessage(1, 20);
 
-    if (!job) {
-      // No job found, just wait for the next poll
-      return;
+    if (messages && messages.length > 0) {
+      const message = messages[0];
+      const { runId } = JSON.parse(message.Body);
+
+      logger.info(`[${runId}] Received job from SQS`);
+
+      // 2. Create/Find Process doc in Mongo to track status for the UI
+      let job = await Process.findOne({ runId });
+      if (!job) {
+        job = await Process.create({ runId, status: PROCESS_STATUS.PENDING });
+      }
+
+      try {
+        // 3. RUN PROCESSING
+        // Note: We are reusing the existing service logic but orchestrating it here.
+        // Ideally, processService should handle the state transitions.
+
+        // A. Parse (Download from Blob -> Extract Text -> Upload Text to Blob)
+        // We need to manually trigger the parse step since we are not leasing from DB anymore
+
+        // Check if we need to do parsing
+        if (job.status === PROCESS_STATUS.PENDING || job.status === PROCESS_STATUS.PARSING) {
+          await processParseStep(runId, job);
+        }
+
+        // B. Generate (Read Text from Blob -> Call Gemini -> Save JSON)
+        // Reload job to check status
+        job = await Process.findOne({ runId });
+        if (job.status === PROCESS_STATUS.PARSED || job.status === PROCESS_STATUS.GENERATING) {
+          await processGenerateStep(runId, job);
+        }
+
+        // 4. Delete from SQS only if successful (or if it's a permanent failure)
+        await sqsService.deleteMessage(message.ReceiptHandle);
+        logger.info(`[${runId}] Job completed and removed from SQS.`);
+
+      } catch (err) {
+        logger.error(err, `[${runId}] Job failed`);
+        // We don't delete the message so it becomes visible again (retry)
+        // Unless it's a fatal error, in which case we might want to DLQ it.
+      }
     }
+  } catch (error) {
+    logger.error(error, 'SQS Polling Error');
+  }
+};
 
-    logger.info(`[${job.runId}] Starting parse job...`);
+/**
+ * Orchestrates the Parsing Step
+ */
+const processParseStep = async (runId, job) => {
+  logger.info(`[${runId}] Starting parse step...`);
 
-    // 2. Get the Run document to find the S3 key
-    const run = await Run.findOne({ runId: job.runId });
+  // Update status to PARSING
+  job.status = PROCESS_STATUS.PARSING;
+  await job.save();
+
+  try {
+    const run = await Run.findOne({ runId });
     if (!run) throw new Error('Associated Run document not found.');
 
-    // 3. Download the PDF from S3
+    // Download PDF from Blob (run.originalPdfKey is now a URL)
     const pdfBuffer = await storageService.download(run.originalPdfKey);
 
-    // 4. Parse the PDF buffer
+    // Extract Text
     const text = await parserService.extractText(pdfBuffer);
 
-    // 5. Define the new path for the *extracted text*
-    const textKey = path.join(
-      process.cwd(),
-      'extracted_details', // <-- Save in 'extracted_details' folder
-      'runs',
-      run.runId,
-      'extracted_text.txt'
-    );
+    // Upload extracted text to Blob
+    const textKey = `runs/${runId}/extracted_text.txt`;
+    const { key: textUrl } = await storageService.upload(Buffer.from(text), textKey, 'text/plain');
 
-    // 6. "Upload" (save) the raw text to the new local folder
-    await storageService.upload(Buffer.from(text), textKey, 'text/plain');
-
-    // 6. Update the Run doc with the new S3 key
-    run.extractedTextKey = textKey;
+    // Update Run doc
+    run.extractedTextKey = textUrl;
     await run.save();
 
-    // 7. Transition the job to the 'generate' step
-    await processService.completeParseJob(job._id);
-    logger.info(`[${job.runId}] Parse job complete. Ready for generation.`);
-} catch (error) {
-    logger.error(error, `[${job?.runId}] Parse job failed`);
-    if (job) {
-      await processService.failJob(job._id, error);
-    }
+    // Update Process doc
+    job.status = PROCESS_STATUS.PARSED;
+    await job.save();
+    logger.info(`[${runId}] Parse step complete.`);
+  } catch (error) {
+    job.status = PROCESS_STATUS.FAILED;
+    job.lastError = { message: error.message, stack: error.stack };
+    await job.save();
+    throw error;
   }
 };
 
 /**
- * Poller for 'generate' jobs
+ * Orchestrates the Generation Step
  */
-const pollForGenerateJobs = async () => {
-  let job = null;
+const processGenerateStep = async (runId, job) => {
+  logger.info(`[${runId}] Starting generation step...`);
+
+  // Update status to GENERATING
+  job.status = PROCESS_STATUS.GENERATING;
+  await job.save();
+
   try {
-    // 1. Try to lease a 'generate' job
-    job = await processService.leaseGenerateJob();
-    if (!job) return;
+    // We can reuse generationService.runGeneration if it accepts the job object
+    // But we need to make sure it doesn't try to lease the job again.
+    // Looking at previous code, runGeneration took 'job' as arg.
 
-    logger.info(`[${job.runId}] Starting generation job...`);
-
-    // 2. Run the main generation logic
     await generationService.runGeneration(job);
 
-    // 3. Mark the job as complete
-    await processService.completeGenerateJob(job._id);
-    logger.info(`[${job.runId}] Generation job successful.`);
-  } catch (error) {
-    logger.error(error, `[${job?.runId}] Generation job failed`);
-    if (job) {
-      // 3b. Mark as failed if an error occurs
-      await processService.failJob(job._id, error);
+    // generationService.runGeneration handles the logic. 
+    // However, we need to ensure it marks the job as COMPLETED.
+    // If generationService relies on DB leasing, we might need to adjust it.
+    // For now, assuming runGeneration does the heavy lifting.
+
+    // Manually mark as completed if generationService doesn't do it fully or if we need to be sure
+    // But wait, generationService likely updates the job status.
+    // Let's check if we need to explicitly complete it.
+
+    // Re-fetch to see if it's completed
+    const updatedJob = await Process.findOne({ runId });
+    if (updatedJob.status !== PROCESS_STATUS.COMPLETED) {
+      await processService.completeGenerateJob(job._id);
     }
+
+    logger.info(`[${runId}] Generation step complete.`);
+  } catch (error) {
+    // generationService might handle failures, but if it throws, we catch here
+    // Ensure job is marked failed
+    await processService.failJob(job._id, error);
+    throw error;
   }
 };
 
-/**
- * The main worker entry point.
- */
-logger.info('Starting WORKER process...');
 const main = async () => {
   await db.connect();
-  logger.info('WORKER connected to MongoDB');
+  logger.info('WORKER started. Polling SQS...');
 
-  // Start the polling loop for PARSE jobs
-  logger.info(`Worker polling for [${PROCESS_STEPS.PARSE}] jobs...`);
-  setInterval(pollForParseJobs, config.pollIntervalMs);
-
-  // Start the polling loop for GENERATE jobs
-  setTimeout(() => {
-    logger.info(`Worker polling for [${PROCESS_STEPS.GENERATE}] jobs...`);
-    setInterval(pollForGenerateJobs, config.pollIntervalMs);
-  }, 1000); // Start 1 second after the first poller
+  // Loop forever
+  while (true) {
+    await pollSQS();
+  }
 };
 
 main().catch((err) => {
