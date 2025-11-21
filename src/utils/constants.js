@@ -1,7 +1,10 @@
 // src/utils/constants.js
 const PROCESS_STATUS = {
   PENDING: 'pending',
-  RUNNING: 'running',
+  RUNNING: 'running', // Kept for backward compatibility
+  PARSING: 'parsing',
+  PARSED: 'parsed',
+  GENERATING: 'generating',
   COMPLETED: 'completed',
   FAILED: 'failed',
   CANCELLED: 'cancelled',

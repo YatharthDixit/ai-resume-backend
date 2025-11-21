@@ -10,6 +10,8 @@ const parserService = require('./services/parser.service');
 const processService = require('./services/process.service');
 const generationService = require('./services/generation.service');
 const { PROCESS_STATUS } = require('./utils/constants');
+const fs = require('fs/promises');
+const path = require('path');
 
 /**
  * Polls SQS for new jobs.
@@ -86,18 +88,22 @@ const processParseStep = async (runId, job) => {
     // Extract Text
     const text = await parserService.extractText(pdfBuffer);
 
-    // Upload extracted text to Blob
-    const textKey = `runs/${runId}/extracted_text.txt`;
-    const { key: textUrl } = await storageService.upload(Buffer.from(text), textKey, 'text/plain');
+    // Save extracted text to LOCAL file system
+    // We use a local path so generationService (which uses fs) can read it
+    const textDir = path.join(process.cwd(), 'extracted_details', 'runs', runId);
+    await fs.mkdir(textDir, { recursive: true });
 
-    // Update Run doc
-    run.extractedTextKey = textUrl;
+    const textPath = path.join(textDir, 'extracted_text.txt');
+    await fs.writeFile(textPath, text, 'utf-8');
+
+    // Update Run doc with the LOCAL path
+    run.extractedTextKey = textPath;
     await run.save();
 
     // Update Process doc
     job.status = PROCESS_STATUS.PARSED;
     await job.save();
-    logger.info(`[${runId}] Parse step complete.`);
+    logger.info(`[${runId}] Parse step complete. Text saved to: ${textPath}`);
   } catch (error) {
     job.status = PROCESS_STATUS.FAILED;
     job.lastError = { message: error.message, stack: error.stack };
