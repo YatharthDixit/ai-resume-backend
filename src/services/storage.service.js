@@ -1,49 +1,55 @@
 // src/services/storage.service.js
-const fs = require('fs/promises'); // Use Node.js file system module
-const path = require('path');
+const { put } = require('@vercel/blob');
+const axios = require('axios');
+const config = require('../config');
 const logger = require('../utils/logger');
 const ApiError = require('../utils/ApiError');
 const { StatusCodes } = require('http-status-codes');
 
 /**
- * Saves a file buffer to the local filesystem.
- * The 'key' is now a full file path.
+ * Uploads a file buffer to Vercel Blob.
+ * The 'key' is used as the filename.
  */
 const upload = async (fileBuffer, key, mimetype) => {
   try {
-    // The 'key' is the full path, e.g., 'uploads/run_123/resume.pdf'
-    // We need to make sure the directory exists first.
-    const dir = path.dirname(key);
-    await fs.mkdir(dir, { recursive: true });
+    // Vercel Blob 'put' returns { url, downloadUrl, pathname, contentType, contentDisposition }
+    const blob = await put(key, fileBuffer, {
+      access: 'public',
+      token: config.blob.token,
+      contentType: mimetype,
+    });
 
-    // Write the file
-    await fs.writeFile(key, fileBuffer);
-    logger.info(`Local file save successful: ${key}`);
-    return { key };
+    logger.info(`File uploaded to Blob: ${blob.url}`);
+    // We return the URL as the key for consistency, or we can return the full blob object
+    // For now, let's return the URL as the 'key' so we can store it in the DB
+    return { key: blob.url };
   } catch (error) {
-    logger.error(error, `Local file save failed: ${key}`);
+    logger.error(error, `Blob upload failed: ${key}`);
     throw new ApiError(
       StatusCodes.INTERNAL_SERVER_ERROR,
-      'Failed to save file to local storage.'
+      'Failed to upload file to storage.'
     );
   }
 };
 
 /**
- * Reads a file from the local filesystem and returns it as a Buffer.
- * The 'key' is the full file path.
+ * Downloads a file from Vercel Blob (via its URL) and returns it as a Buffer.
+ * The 'key' is expected to be the full URL.
  */
 const download = async (key) => {
   try {
-    // Read the file from the path
-    const buffer = await fs.readFile(key);
-    logger.info(`Local file read successful: ${key}`);
-    return buffer;
+    // Since 'key' is the URL, we can just fetch it
+    const response = await axios.get(key, {
+      responseType: 'arraybuffer',
+    });
+
+    logger.info(`File downloaded from Blob: ${key}`);
+    return Buffer.from(response.data);
   } catch (error) {
-    logger.error(error, `Local file read failed: ${key}`);
+    logger.error(error, `Blob download failed: ${key}`);
     throw new ApiError(
       StatusCodes.INTERNAL_SERVER_ERROR,
-      'Failed to read file from local storage.'
+      'Failed to download file from storage.'
     );
   }
 };
