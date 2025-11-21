@@ -16,6 +16,9 @@ const { PROCESS_STATUS } = require('../utils/constants'); // <-- ADD THIS
  * Creates a new run
  * (This is our existing function that saves to the 'uploads' folder)
  */
+// ... (keep other imports like Run model)
+const sqsService = require('../services/sqs.service'); // Import SQS service
+
 const createRun = async (req, res) => {
   const { instruction_text } = req.body;
 
@@ -32,30 +35,25 @@ const createRun = async (req, res) => {
   // 2. Save it FIRST to get the runId
   await run.save();
 
-  // 3. Define the *local* file path
-  // process.cwd() is the project root.
-  // This creates a path like '.../resume-backend/uploads/runs/run_123/resume.pdf'
-  const localKey = path.join(
-    process.cwd(),
-    'uploads', // Our 'uploads' folder
-    'runs',
-    run.runId,
-    run.originalFilename
+  // 3. Define the key for Blob storage (e.g., runs/{runId}/{filename})
+  const blobKey = `runs/${run.runId}/${run.originalFilename}`;
+
+  // 4. Upload to Vercel Blob
+  // storageService.upload now returns { key: url }
+  const { key: blobUrl } = await storageService.upload(
+    req.file.buffer,
+    blobKey,
+    req.file.mimetype
   );
 
-  // 4. "Upload" (save) the file locally
-  await storageService.upload(req.file.buffer, localKey, req.file.mimetype);
-
-  // 5. Add the local key to the doc and save AGAIN
-  run.originalPdfKey = localKey; // Save the full absolute path
+  // 5. Add the Blob URL to the doc and save AGAIN
+  run.originalPdfKey = blobUrl;
   await run.save();
 
-  // 6. Create the initial Process doc
-  await Process.create({
-    runId: run.runId,
-  });
+  // 6. Send message to SQS
+  await sqsService.sendMessage({ runId: run.runId });
 
-  logger.info(`New job created: ${run.runId}`);
+  logger.info(`New job created and queued: ${run.runId}`);
 
   // 7. Respond to the user
   res.status(StatusCodes.ACCEPTED).send({
@@ -63,7 +61,7 @@ const createRun = async (req, res) => {
     data: {
       runId: run.runId,
       status: run.status,
-      message: 'Your resume is being processed.',
+      message: 'Your resume is queued for processing.',
     },
   });
 };
