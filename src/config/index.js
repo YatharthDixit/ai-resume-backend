@@ -12,10 +12,11 @@ const envSchema = z.object({
   PORT: z.coerce.number().default(8080),
   ROLE: z.enum(['web', 'worker']).default('web'),
   MONGODB_URI: z.string().min(1, 'MONGODB_URI is required'),
-//   AWS_BUCKET_NAME: z.string().min(1, 'AWS_BUCKET_NAME is required'),
-//   AWS_REGION: z.string().min(1, 'AWS_REGION is required'),
-//   AWS_ACCESS_KEY_ID: z.string().min(1, 'AWS_ACCESS_KEY_ID is required'),
-//   AWS_SECRET_ACCESS_KEY: z.string().min(1, 'AWS_SECRET_ACCESS_KEY is required'),
+  BLOB_READ_WRITE_TOKEN: z.string().min(1, 'BLOB_READ_WRITE_TOKEN is required'),
+  AWS_REGION: z.string().min(1, 'AWS_REGION is required'),
+  AWS_ACCESS_KEY_ID: z.string().min(1, 'AWS_ACCESS_KEY_ID is required'),
+  AWS_SECRET_ACCESS_KEY: z.string().min(1, 'AWS_SECRET_ACCESS_KEY is required'),
+  AWS_SQS_QUEUE_URL: z.string().min(1, 'AWS_SQS_QUEUE_URL is required'),
   LEASE_TTL_MS: z.coerce.number().default(90000),
   WORKER_POLL_INTERVAL_MS: z.coerce.number().default(5000),
   DEFAULT_RETENTION_HOURS: z.coerce.number().default(24),
@@ -53,12 +54,15 @@ module.exports = {
     // Split comma-separated keys into an array
     apiKeys: config.LLM_API_KEYS.split(','),
   },
-//   aws: {
-//     bucketName: config.AWS_BUCKET_NAME,
-//     region: config.AWS_REGION,
-//     accessKeyId: config.AWS_ACCESS_KEY_ID,
-//     secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
-//   },
+  aws: {
+    region: config.AWS_REGION,
+    accessKeyId: config.AWS_ACCESS_KEY_ID,
+    secretAccessKey: config.AWS_SECRET_ACCESS_KEY,
+    sqsQueueUrl: config.AWS_SQS_QUEUE_URL,
+  },
+  blob: {
+    token: config.BLOB_READ_WRITE_TOKEN,
+  },
   mongoose: {
     url: config.MONGODB_URI,
     options: {

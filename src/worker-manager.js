@@ -3,111 +3,173 @@ const config = require('./config');
 const db = require('./config/db');
 const logger = require('./utils/logger');
 const Run = require('./models/run.model');
-const fs = require('fs/promises'); // Import fs/promises
-const path = require('path'); // Import path
+const Process = require('./models/process.model');
+const Resume = require('./models/resume.model');
+const sqsService = require('./services/sqs.service');
 const storageService = require('./services/storage.service');
 const parserService = require('./services/parser.service');
 const processService = require('./services/process.service');
 const generationService = require('./services/generation.service');
-const { PROCESS_STEPS } = require('./utils/constants');
+const atsService = require('./services/ats.service');
+const { PROCESS_STATUS } = require('./utils/constants');
+const fs = require('fs/promises');
+const path = require('path');
 
 /**
- * The main polling function that looks for 'parse' jobs.
+ * Polls SQS for new jobs.
  */
-const pollForParseJobs = async () => {
-  let job = null;
+const pollSQS = async () => {
   try {
-    // 1. Try to lease a job
-    job = await processService.leaseParseJob();
+    const messages = await sqsService.receiveMessage(1, 20);
 
-    if (!job) {
-      // No job found, just wait for the next poll
-      return;
+    if (messages && messages.length > 0) {
+      const message = messages[0];
+      const { runId } = JSON.parse(message.Body);
+
+      logger.info(`[${runId}] Received job from SQS`);
+
+      let job = await Process.findOne({ runId });
+      if (!job) {
+        job = await Process.create({ runId, status: PROCESS_STATUS.PENDING });
+      }
+
+      try {
+        // TWO-PASS ARCHITECTURE
+
+        // 1. PARSE STEP (Extract + Structure + ATS Baseline)
+        if (job.status === PROCESS_STATUS.PENDING || job.status === PROCESS_STATUS.PARSING) {
+          await processParseStep(runId, job);
+        }
+
+        // 2. GENERATE STEP (Optimize + ATS Final)
+        // Reload job to check status
+        job = await Process.findOne({ runId });
+        if (job.status === PROCESS_STATUS.PARSED || job.status === PROCESS_STATUS.GENERATING) {
+          await processGenerateStep(runId, job);
+        }
+
+        // 3. Cleanup
+        await sqsService.deleteMessage(message.ReceiptHandle);
+        logger.info(`[${runId}] Job completed and removed from SQS.`);
+
+      } catch (err) {
+        logger.error(err, `[${runId}] Job failed`);
+        // Don't delete message on failure to allow retry (unless fatal)
+      }
     }
+  } catch (error) {
+    logger.error(error, 'SQS Polling Error');
+  }
+};
 
-    logger.info(`[${job.runId}] Starting parse job...`);
+/**
+ * PASS 1: Parse Step
+ * Downloads PDF, Extracts Text, Generates Original JSON, Calculates Baseline ATS Score.
+ */
+const processParseStep = async (runId, job) => {
+  logger.info(`[${runId}] Starting Pass 1: Parse...`);
+  job.status = PROCESS_STATUS.PARSING;
+  await job.save();
 
-    // 2. Get the Run document to find the S3 key
-    const run = await Run.findOne({ runId: job.runId });
+  try {
+    const run = await Run.findOne({ runId });
     if (!run) throw new Error('Associated Run document not found.');
 
-    // 3. Download the PDF from S3
+    // A. Download & Extract
     const pdfBuffer = await storageService.download(run.originalPdfKey);
-
-    // 4. Parse the PDF buffer
     const text = await parserService.extractText(pdfBuffer);
 
-    // 5. Define the new path for the *extracted text*
-    const textKey = path.join(
-      process.cwd(),
-      'extracted_details', // <-- Save in 'extracted_details' folder
-      'runs',
-      run.runId,
-      'extracted_text.txt'
-    );
-
-    // 6. "Upload" (save) the raw text to the new local folder
-    await storageService.upload(Buffer.from(text), textKey, 'text/plain');
-
-    // 6. Update the Run doc with the new S3 key
-    run.extractedTextKey = textKey;
+    // Save text locally (legacy support + backup)
+    const textDir = path.join(process.cwd(), 'extracted_details', 'runs', runId);
+    await fs.mkdir(textDir, { recursive: true });
+    const textPath = path.join(textDir, 'extracted_text.txt');
+    await fs.writeFile(textPath, text, 'utf-8');
+    run.extractedTextKey = textPath;
     await run.save();
 
-    // 7. Transition the job to the 'generate' step
-    await processService.completeParseJob(job._id);
-    logger.info(`[${job.runId}] Parse job complete. Ready for generation.`);
-} catch (error) {
-    logger.error(error, `[${job?.runId}] Parse job failed`);
-    if (job) {
-      await processService.failJob(job._id, error);
-    }
-  }
-};
+    // B. Generate Original JSON (Structure Only)
+    const original_json = await generationService.generateStructuredData(text, runId);
 
-/**
- * Poller for 'generate' jobs
- */
-const pollForGenerateJobs = async () => {
-  let job = null;
-  try {
-    // 1. Try to lease a 'generate' job
-    job = await processService.leaseGenerateJob();
-    if (!job) return;
+    // C. Calculate Baseline ATS Score
+    const atsResult = atsService.calculateScore(text, run.instruction_text); // Using instruction as proxy for JD if not separate
 
-    logger.info(`[${job.runId}] Starting generation job...`);
+    // D. Save Intermediate Result
+    // We create the Resume doc here with partial data
+    await Resume.findOneAndUpdate(
+      { runId },
+      {
+        runId,
+        original_json,
+        'atsScore.pre': atsResult.score,
+        missingKeywords: atsResult.missingKeywords
+      },
+      { upsert: true, new: true }
+    );
 
-    // 2. Run the main generation logic
-    await generationService.runGeneration(job);
-
-    // 3. Mark the job as complete
-    await processService.completeGenerateJob(job._id);
-    logger.info(`[${job.runId}] Generation job successful.`);
+    job.status = PROCESS_STATUS.PARSED;
+    await job.save();
+    logger.info(`[${runId}] Pass 1 Complete.`);
   } catch (error) {
-    logger.error(error, `[${job?.runId}] Generation job failed`);
-    if (job) {
-      // 3b. Mark as failed if an error occurs
-      await processService.failJob(job._id, error);
-    }
+    job.status = PROCESS_STATUS.FAILED;
+    job.lastError = { message: error.message, stack: error.stack };
+    await job.save();
+    throw error;
   }
 };
 
 /**
- * The main worker entry point.
+ * PASS 2: Generate Step
+ * Optimizes the content using User Instructions.
  */
-logger.info('Starting WORKER process...');
+const processGenerateStep = async (runId, job) => {
+  logger.info(`[${runId}] Starting Pass 2: Generate...`);
+  job.status = PROCESS_STATUS.GENERATING;
+  await job.save();
+
+  try {
+    const run = await Run.findOne({ runId });
+    const resume = await Resume.findOne({ runId });
+
+    // Read text again (or we could pass it from previous step, but stateless is safer)
+    const text = await fs.readFile(run.extractedTextKey, 'utf-8');
+
+    // A. Optimize JSON
+    const final_json = await generationService.optimizeStructuredData(
+      text,
+      run.instruction_text,
+      runId,
+      job._id
+    );
+
+    // B. Calculate Final ATS Score
+    // We convert final_json back to text roughly to score it, or just score the bullets?
+    // For MVP, let's score the raw text of the final json
+    const finalString = JSON.stringify(final_json);
+    const atsResult = atsService.calculateScore(finalString, run.instruction_text);
+
+    // C. Save Final Result
+    resume.final_json = final_json;
+    resume.atsScore.post = atsResult.score;
+    // We keep the missing keywords from the original check or update them? 
+    // Usually we want to see what's STILL missing.
+    resume.missingKeywords = atsResult.missingKeywords;
+    await resume.save();
+
+    // D. Complete Job
+    await processService.completeGenerateJob(job._id);
+    logger.info(`[${runId}] Pass 2 Complete. Job Finished.`);
+  } catch (error) {
+    await processService.failJob(job._id, error);
+    throw error;
+  }
+};
+
 const main = async () => {
   await db.connect();
-  logger.info('WORKER connected to MongoDB');
-
-  // Start the polling loop for PARSE jobs
-  logger.info(`Worker polling for [${PROCESS_STEPS.PARSE}] jobs...`);
-  setInterval(pollForParseJobs, config.pollIntervalMs);
-
-  // Start the polling loop for GENERATE jobs
-  setTimeout(() => {
-    logger.info(`Worker polling for [${PROCESS_STEPS.GENERATE}] jobs...`);
-    setInterval(pollForGenerateJobs, config.pollIntervalMs);
-  }, 1000); // Start 1 second after the first poller
+  logger.info('WORKER started. Polling SQS...');
+  while (true) {
+    await pollSQS();
+  }
 };
 
 main().catch((err) => {
