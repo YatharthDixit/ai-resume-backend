@@ -8,12 +8,17 @@ A robust backend service for asynchronously processing, optimizing, and re-rende
 ## 🚀 Core Features
 
 * **Asynchronous Job Processing:** Built with a separate **Web** and **Worker** process to handle long-running AI tasks without blocking the API.
+* **Two-Pass Architecture:** Implements a robust "Parse -> Optimize" flow to ensure accurate diffing and data integrity.
+    * **Pass 1 (Parse):** Extracts raw text and structures it into a standardized JSON format (Source of Truth).
+    * **Pass 2 (Optimize):** Applies user instructions to the parsed data to generate the final optimized version.
+* **Diff Viewer Support:** Stores both "Original" and "Optimized" JSONs to enable a side-by-side comparison UI.
+* **ATS Scoring:** Automatically calculates a keyword match score (pre and post-optimization) and identifies missing keywords from the job description.
 * **PDF Parsing:** Extracts raw text and hyperlinks from uploaded PDF resumes using `pdfjs-dist`.
 * **AI-Powered Optimization:** Uses the Gemini API to analyze resume text against user instructions, following a "chunk-and-merge" logic for robust JSON generation.
 * **Stateless & Scalable:** Leverages **S3** for file storage (original PDF, extracted text), allowing both Web and Worker processes to be scaled independently.
 * **Dynamic Rendering:** Generates **HTML previews** and final **PDF downloads** from the structured JSON data using Puppeteer for high-fidelity output.
 * **Robust Validation:** Employs `zod` for strict, schema-based validation of all incoming API requests.
-* **Resilient LLM Calls:** Includes logic to rotate Gemini API keys on rate-limit (429) errors.
+* **Resilient LLM Calls:** Includes logic to rotate Gemini API keys on rate-limit (429) errors and retry on JSON parse failures.
 
 ---
 
@@ -31,18 +36,22 @@ This project runs as two distinct processes from the same codebase, orchestrated
 2.  **`WORKER` Process (`npm run worker`):** A background job processor.
     * Polls the `processes` collection in MongoDB for `pending` jobs.
     * Leases a job, downloads the PDF from S3, and parses the text using the `ParserService`.
-    * Performs the "chunk-and-merge" generation by calling the `LLMService` (Gemini).
-    * Saves the final `final_json` to a `Resume` document.
+    * **Pass 1:** Calls `LLMService` to structure raw text into `original_json` and calculates baseline ATS score.
+    * **Pass 2:** Calls `LLMService` to optimize content into `final_json` and calculates final ATS score.
+    * Saves both JSONs to a `Resume` document.
     * Updates the job status to `completed` or `failed`.
 
 ### 🔄 Data Flow
 
 1.  User `POST /api/v1/runs` with a PDF to the **WEB** server.
 2.  **WEB** server uploads the PDF to S3, creates a `Run` job in MongoDB, and responds *immediately* with a `runId`.
-3.  **WORKER** process finds the `pending` job, downloads the PDF from S3, and parses it.
-4.  **WORKER** calls the Gemini API in chunks to build the `final_json`, then saves it to the `Resume` collection.
+3.  **WORKER** process finds the `pending` job, downloads the PDF from S3.
+4.  **WORKER** runs **Pass 1** (Parse) -> **Pass 2** (Optimize).
 5.  User's frontend polls `GET /api/v1/runs/:runId/status`.
-6.  Once status is `completed`, the user can fetch the `GET /.../preview-html` or `POST /.../render-pdf`.
+6.  Once status is `completed`, the user can:
+    *   Fetch the diff data via `GET /.../diff`.
+    *   Fetch the preview via `GET /.../preview-html`.
+    *   Download the PDF via `POST /.../render-pdf`.
 
 ---
 
@@ -129,9 +138,9 @@ DEFAULT_RETENTION_HOURS=24
 LLM_API_KEYS="key-one,key-two,key-three"
 LLM_MODEL="gemini-1.5-flash"
 LLM_TIMEOUT_MS=60000
-````
+```
 
-### 3\. Running the Application
+### 3. Running the Application
 
 This project requires **two terminals** to run in development.
 
@@ -161,6 +170,7 @@ All routes are prefixed with `/api/v1`.
 | :--- | :--- | :--- |
 | `POST` | `/runs` | Creates a new resume optimization job. Requires `multipart/form-data` with a `file` and `instruction_text`. |
 | `GET` | `/runs/:runId/status` | Polls for the status of a job. Returns `status`, `step`, and `progress`. |
+| `GET` | `/runs/:runId/diff` | Returns `original` and `optimized` JSONs + ATS scores for the Diff Viewer. |
 | `GET` | `/runs/:runId/preview-html` | Returns the raw HTML preview of the optimized resume. |
 | `POST` | `/runs/:runId/render-pdf` | Generates and returns the final, optimized resume as a PDF file download. |
 
@@ -190,13 +200,14 @@ All routes are prefixed with `/api/v1`.
    ├─ /models              # Mongoose schemas
    │  ├─ run.model.js
    │  ├─ process.model.js  # The job queue model
-   │  └─ resume.model.js   # Stores final JSON
+   │  └─ resume.model.js   # Stores original_json, final_json, atsScore
    │
    ├─ /services            # Core business logic
    │  ├─ parser.service.js   # pdfjs-dist logic
    │  ├─ storage.service.js  # S3 wrapper
    │  ├─ llm.service.js      # Gemini API client
-   │  ├─ generation.service.js # Chunk-loop-merge logic
+   │  ├─ generation.service.js # Two-Pass logic (Parse & Optimize)
+   │  ├─ ats.service.js      # Keyword scoring logic
    │  ├─ renderer.service.js # HTML/PDF generation
    │  └─ process.service.js  # Job leasing logic
    │
@@ -211,7 +222,7 @@ All routes are prefixed with `/api/v1`.
    │  └─ constants.js
    │
    └─ /libs
-      ├─ promptBuilder.js  # buildChunkPrompt()
+      ├─ promptBuilder.js  # buildChunkPrompt(), buildParsePrompt()
       └─ llmSchemas.js     # JSON_SCHEMA_CHUNKS
 ```
 

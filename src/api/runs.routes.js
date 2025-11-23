@@ -51,4 +51,10 @@ router.post(
   asyncHandler(runsController.renderPdf)
 );
 
+// GET /api/v1/runs/:runId/diff
+router.get(
+  '/:runId/diff',
+  asyncHandler(runsController.getDiffData)
+);
+
 module.exports = router;

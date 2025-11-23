@@ -9,10 +9,24 @@ const resumeSchema = new mongoose.Schema(
       unique: true,
       index: true,
     },
-    // The final, merged JSON from the GenerationService
-    final_json: {
-      type: Object, // Mongoose will store the JSON object here
+    // PASS 1: The structured representation of the raw PDF (Source of Truth)
+    original_json: {
+      type: Object,
       required: true,
+    },
+    // PASS 2: The optimized, rewritten resume (Final Output)
+    final_json: {
+      type: Object,
+      required: true,
+    },
+    // ATS Score details
+    atsScore: {
+      pre: { type: Number, default: 0 },
+      post: { type: Number, default: 0 },
+    },
+    missingKeywords: {
+      type: [String],
+      default: [],
     },
   },
   { timestamps: true }

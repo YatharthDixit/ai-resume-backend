@@ -163,9 +163,41 @@ const renderPdf = async (req, res) => {
   res.status(StatusCodes.OK).send(pdfBuffer);
 };
 
+/**
+ * GET /runs/:runId/diff
+ * Fetches the Original and Final JSONs for the Diff Viewer
+ */
+const getDiffData = async (req, res) => {
+  const { runId } = req.params;
+
+  const result = await Resume.findOne({ runId });
+  if (!result) {
+    throw new ApiError(StatusCodes.NOT_FOUND, 'Resume data not found.');
+  }
+
+  // Ensure both passes are complete
+  if (!result.original_json || !result.final_json) {
+    throw new ApiError(StatusCodes.BAD_REQUEST, 'Processing not complete. Diff unavailable.');
+  }
+
+  res.status(StatusCodes.OK).send({
+    success: true,
+    data: {
+      original: result.original_json,
+      optimized: result.final_json,
+      ats: {
+        pre: result.atsScore?.pre || 0,
+        post: result.atsScore?.post || 0,
+        missingKeywords: result.missingKeywords || [],
+      },
+    },
+  });
+};
+
 module.exports = {
   createRun,
   getRunStatus,
   getPreviewHtml,
-  renderPdf, // <-- Export the new function
+  renderPdf,
+  getDiffData, // <-- Export the new function
 };

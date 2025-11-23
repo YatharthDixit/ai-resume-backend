@@ -1,69 +1,75 @@
 // src/services/generation.service.js
-const fs = require('fs/promises'); // Use promises-based fs
+const fs = require('fs/promises');
 const Run = require('../models/run.model');
 const Resume = require('../models/resume.model.js');
 const processService = require('./process.service');
 const llmService = require('./llm.service');
 const { JSON_SCHEMA_CHUNKS } = require('../libs/llmSchemas');
-const { buildChunkPrompt } = require('../libs/promptBuilder');
+const { buildChunkPrompt, buildParsePrompt } = require('../libs/promptBuilder');
 const logger = require('../utils/logger');
 
 /**
- * Orchestrates the chunk-loop-merge logic for AI generation.
- * @param {object} job - The 'Process' document (job) from the queue
+ * PASS 1: Generate Structured Data (Original JSON)
+ * Extracts data from raw text without optimization.
  */
-const runGeneration = async (job) => {
-  const { runId, _id: processId } = job;
-  logger.info(`[${runId}] Starting generation job...`);
+const generateStructuredData = async (rawText, runId) => {
+  logger.info(`[${runId}] Starting Pass 1: Parsing...`);
+  const original_json = {};
+  const chunkKeys = Object.keys(JSON_SCHEMA_CHUNKS);
 
-  // 1. Get Run doc to find instructions and text file path
-  const run = await Run.findOne({ runId });
-  if (!run) throw new Error(`[${runId}] Associated Run document not found.`);
+  for (const key of chunkKeys) {
+    logger.info(`[${runId}] Parsing chunk: ${key}`);
+    const chunkSchema = JSON_SCHEMA_CHUNKS[key];
+    // Use the Parse-Only prompt
+    const prompt = buildParsePrompt(rawText, chunkSchema);
 
-  // 2. Read the extracted text from the LOCAL file
-  // This reads from the 'extracted_details' path we saved in the Run doc
-  const rawText = await fs.readFile(run.extractedTextKey, 'utf-8');
+    try {
+      const chunkJson = await llmService.generateChunk(prompt);
+      Object.assign(original_json, chunkJson);
+    } catch (error) {
+      logger.error(error, `[${runId}] Failed to parse chunk: ${key}`);
+      // Continue to next chunk even if one fails
+    }
+  }
+  return original_json;
+};
 
-  // 3. Loop, Call, and Merge
+/**
+ * PASS 2: Optimize Structured Data (Final JSON)
+ * Takes the original JSON (or raw text) and optimizes it based on instructions.
+ * Note: We still use rawText + Instructions for the best LLM context, 
+ * but we ensure the schema matches.
+ */
+const optimizeStructuredData = async (rawText, instruction, runId, processId) => {
+  logger.info(`[${runId}] Starting Pass 2: Optimization...`);
   const final_json = {};
   const chunkKeys = Object.keys(JSON_SCHEMA_CHUNKS);
 
   for (const key of chunkKeys) {
-    logger.info(`[${runId}] Processing chunk: ${key}`);
+    logger.info(`[${runId}] Optimizing chunk: ${key}`);
     const chunkSchema = JSON_SCHEMA_CHUNKS[key];
-    const prompt = buildChunkPrompt(
-      rawText,
-      run.instruction_text,
-      chunkSchema
-    );
+    // Use the Optimization prompt
+    const prompt = buildChunkPrompt(rawText, instruction, chunkSchema);
 
     try {
-      // 3a. Call the LLM
       const chunkJson = await llmService.generateChunk(prompt);
-      
-      // 3b. Merge the result
       Object.assign(final_json, chunkJson);
-      
-      // 3c. Update progress
-      await processService.updateChunkProgress(processId, key);
+
+      // Update progress only during the main optimization phase
+      if (processId) {
+        await processService.updateChunkProgress(processId, key);
+      }
     } catch (error) {
-      logger.error(error, `[${runId}] Failed to process chunk: ${key}`);
-      // Log the error but continue to the next chunk
-      await processService.updateChunkProgress(processId, key, error);
+      logger.error(error, `[${runId}] Failed to optimize chunk: ${key}`);
+      if (processId) {
+        await processService.updateChunkProgress(processId, key, error);
+      }
     }
   }
-
-  logger.info(`[${runId}] All chunks processed. Saving to database...`);
-
-  // 4. Save the final merged JSON to the 'resumes' collection
-  await Resume.create({
-    runId,
-    final_json,
-  });
-
-  logger.info(`[${runId}] Generation job finished.`);
+  return final_json;
 };
 
 module.exports = {
-  runGeneration,
+  generateStructuredData,
+  optimizeStructuredData,
 };

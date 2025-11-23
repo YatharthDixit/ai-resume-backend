@@ -38,9 +38,33 @@ const generateChunk = async (prompt, retries = apiKeys.length) => {
       timeout: config.llm.timeout,
     });
 
-    // The Gemini API response has the JSON *inside* a text field
-    const contentText = response.data.candidates[0].content.parts[0].text;
-    return JSON.parse(contentText);
+    // Validate response structure
+    if (!response.data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+      throw new Error('Invalid response structure from Gemini API');
+    }
+
+    let contentText = response.data.candidates[0].content.parts[0].text;
+
+    // Sanitize: Remove markdown code blocks if present
+    contentText = contentText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+
+    try {
+      return JSON.parse(contentText);
+    } catch (parseError) {
+      // Log the raw content for debugging
+      console.log('--- GEMINI RAW RESPONSE START ---');
+      console.log(contentText);
+      console.log('--- GEMINI RAW RESPONSE END ---');
+
+      logger.error({ contentText }, 'Failed to parse JSON from Gemini');
+
+      if (retries > 0) {
+        logger.warn(`JSON Parse failed. Retrying... (${retries} retries left)`);
+        return generateChunk(prompt, retries - 1);
+      }
+
+      throw new Error(`JSON Parse Error: ${parseError.message}`);
+    }
   } catch (error) {
     // Check for 429 error (Too Many Requests) to trigger key rotation
     if (error.response && error.response.status === 429 && retries > 0) {
