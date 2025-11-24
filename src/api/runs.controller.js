@@ -20,7 +20,7 @@ const { PROCESS_STATUS } = require('../utils/constants'); // <-- ADD THIS
 const sqsService = require('../services/sqs.service'); // Import SQS service
 
 const createRun = async (req, res) => {
-  const { instruction_text } = req.body;
+  const { instruction_text, has_job_description } = req.body;
 
   if (!req.file) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'A PDF file is required.');
@@ -30,6 +30,8 @@ const createRun = async (req, res) => {
   const run = new Run({
     originalFilename: req.file.originalname,
     instruction_text,
+    jobDescription: has_job_description === 'true' ? instruction_text.split('=== TARGET JOB DESCRIPTION ===')[1]?.trim() : null,
+    hasJobDescription: has_job_description === 'true',
   });
 
   // 2. Save it FIRST to get the runId

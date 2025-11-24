@@ -27,6 +27,13 @@ const runSchema = new mongoose.Schema(
     instruction_text: {
       type: String,
     },
+    jobDescription: {
+      type: String,
+    },
+    hasJobDescription: {
+      type: Boolean,
+      default: false,
+    },
     status: {
       type: String,
       enum: Object.values(PROCESS_STATUS),

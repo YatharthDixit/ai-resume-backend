@@ -91,7 +91,10 @@ const processParseStep = async (runId, job) => {
     const original_json = await generationService.generateStructuredData(text, runId, job._id);
 
     // C. Calculate Baseline ATS Score
-    const atsResult = atsService.calculateScore(text, run.instruction_text); // Using instruction as proxy for JD if not separate
+    let atsResult = { score: 0, missingKeywords: [] };
+    if (run.hasJobDescription && run.jobDescription) {
+      atsResult = atsService.calculateScore(text, run.jobDescription);
+    }
 
     // D. Save Intermediate Result
     // We create the Resume doc here with partial data
@@ -144,8 +147,11 @@ const processGenerateStep = async (runId, job) => {
     // B. Calculate Final ATS Score
     // We convert final_json back to text roughly to score it, or just score the bullets?
     // For MVP, let's score the raw text of the final json
-    const finalString = JSON.stringify(final_json);
-    const atsResult = atsService.calculateScore(finalString, run.instruction_text);
+    let atsResult = { score: 0, missingKeywords: [] };
+    if (run.hasJobDescription && run.jobDescription) {
+      const finalString = JSON.stringify(final_json);
+      atsResult = atsService.calculateScore(finalString, run.jobDescription);
+    }
 
     // C. Save Final Result
     resume.final_json = final_json;
