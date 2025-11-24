@@ -55,6 +55,8 @@ const completeParseJob = async (processId) => {
     status: PROCESS_STATUS.PENDING,
     step: PROCESS_STEPS.GENERATE,
     leased_until: new Date(Date.now() - config.leaseTtlMs), // Make it immediately available
+    currentChunk: null, // Reset current chunk
+    'meta.chunks_completed': 0, // Reset counter for generation phase
   };
   await Process.findByIdAndUpdate(processId, update);
 };

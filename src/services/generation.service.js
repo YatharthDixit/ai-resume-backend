@@ -72,8 +72,19 @@ const optimizeStructuredData = async (rawText, instruction, runId, processId) =>
   const final_json = {};
   const chunkKeys = Object.keys(JSON_SCHEMA_CHUNKS);
 
-  for (const key of chunkKeys) {
+  for (let i = 0; i < chunkKeys.length; i++) {
+    const key = chunkKeys[i];
     logger.info(`[${runId}] Optimizing chunk: ${key}`);
+
+    // Update status to generating with current chunk
+    if (processId) {
+      await processService.updateStatus(processId, {
+        status: 'generating',
+        step: 'generate',
+        currentChunk: key,
+      });
+    }
+
     const chunkSchema = JSON_SCHEMA_CHUNKS[key];
     // Use the Optimization prompt
     const prompt = buildChunkPrompt(rawText, instruction, chunkSchema);
