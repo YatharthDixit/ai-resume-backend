@@ -183,11 +183,15 @@ const getDiffData = async (req, res) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Processing not complete. Diff unavailable.');
   }
 
+  // Fetch Run to get metadata
+  const run = await Run.findOne({ runId });
+
   res.status(StatusCodes.OK).send({
     success: true,
     data: {
       original: result.original_json,
       optimized: result.final_json,
+      hasJobDescription: run?.hasJobDescription || false,
       ats: {
         pre: result.atsScore?.pre || 0,
         post: result.atsScore?.post || 0,
