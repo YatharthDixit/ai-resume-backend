@@ -72,6 +72,18 @@ const optimizeStructuredData = async (rawText, instruction, runId, processId) =>
   const final_json = {};
   const chunkKeys = Object.keys(JSON_SCHEMA_CHUNKS);
 
+  // Reset the counter at the start of generation phase
+  if (processId) {
+    await processService.updateStatus(processId, {
+      status: 'generating',
+      step: 'generate',
+      meta: {
+        chunks_total: chunkKeys.length,
+        chunks_completed: 0,
+      }
+    });
+  }
+
   for (let i = 0; i < chunkKeys.length; i++) {
     const key = chunkKeys[i];
     logger.info(`[${runId}] Optimizing chunk: ${key}`);
