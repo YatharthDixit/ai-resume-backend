@@ -87,8 +87,8 @@ const processParseStep = async (runId, job) => {
     run.extractedTextKey = textPath;
     await run.save();
 
-    // B. Generate Original JSON (Structure Only)
-    const original_json = await generationService.generateStructuredData(text, runId);
+    // B. Generate Original JSON (Structure Only) - with progress tracking
+    const original_json = await generationService.generateStructuredData(text, runId, job._id);
 
     // C. Calculate Baseline ATS Score
     const atsResult = atsService.calculateScore(text, run.instruction_text); // Using instruction as proxy for JD if not separate

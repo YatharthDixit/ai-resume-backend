@@ -12,13 +12,29 @@ const logger = require('../utils/logger');
  * PASS 1: Generate Structured Data (Original JSON)
  * Extracts data from raw text without optimization.
  */
-const generateStructuredData = async (rawText, runId) => {
+const generateStructuredData = async (rawText, runId, processId = null) => {
   logger.info(`[${runId}] Starting Pass 1: Parsing...`);
   const original_json = {};
   const chunkKeys = Object.keys(JSON_SCHEMA_CHUNKS);
 
-  for (const key of chunkKeys) {
+  for (let i = 0; i < chunkKeys.length; i++) {
+    const key = chunkKeys[i];
     logger.info(`[${runId}] Parsing chunk: ${key}`);
+
+    // Update process status with current chunk
+    if (processId) {
+      await processService.updateStatus(processId, {
+        status: 'parsing',
+        step: 'parse',
+        currentChunk: key,
+        meta: {
+          chunks_total: chunkKeys.length,
+          chunks_completed: i,
+          current_chunk_name: key
+        }
+      });
+    }
+
     const chunkSchema = JSON_SCHEMA_CHUNKS[key];
     // Use the Parse-Only prompt
     const prompt = buildParsePrompt(rawText, chunkSchema);
@@ -31,6 +47,18 @@ const generateStructuredData = async (rawText, runId) => {
       // Continue to next chunk even if one fails
     }
   }
+
+  // Mark parsing as complete
+  if (processId) {
+    await processService.updateStatus(processId, {
+      status: 'parsed',
+      meta: {
+        chunks_total: chunkKeys.length,
+        chunks_completed: chunkKeys.length
+      }
+    });
+  }
+
   return original_json;
 };
 

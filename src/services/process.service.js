@@ -84,6 +84,14 @@ const completeGenerateJob = async (processId) => {
 };
 
 /**
+ * Updates the status of a process job with custom fields.
+ * Used for granular progress updates during parsing/generation.
+ */
+const updateStatus = async (processId, updates) => {
+  await Process.findByIdAndUpdate(processId, updates);
+};
+
+/**
  * Marks a job as 'failed' and logs the error.
  */
 const failJob = async (processId, error) => {
@@ -103,5 +111,6 @@ module.exports = {
   completeParseJob, // Renamed from transitionToGenerate
   updateChunkProgress, // Export new
   completeGenerateJob, // Export new
+  updateStatus, // Export new for granular updates
   failJob,
 };
