@@ -25,6 +25,10 @@ const processSchema = new mongoose.Schema(
       enum: Object.values(PROCESS_STEPS),
       default: PROCESS_STEPS.PARSE,
     },
+    currentChunk: {
+      type: String,
+      default: null,
+    },
     attempt: {
       type: Number,
       default: 1,

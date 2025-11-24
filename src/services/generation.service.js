@@ -30,7 +30,6 @@ const generateStructuredData = async (rawText, runId, processId = null) => {
         meta: {
           chunks_total: chunkKeys.length,
           chunks_completed: i,
-          current_chunk_name: key
         }
       });
     }

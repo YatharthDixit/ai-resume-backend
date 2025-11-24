@@ -88,7 +88,7 @@ const getRunStatus = async (req, res) => {
       completed_chunks: job.meta?.chunks_completed || 0,
     },
     meta: {
-      current_chunk_name: job.meta?.current_chunk_name || job.currentChunk || null,
+      current_chunk_name: job.currentChunk || null,
       chunks_total: job.meta?.chunks_total || 0,
       chunks_completed: job.meta?.chunks_completed || 0,
     },
