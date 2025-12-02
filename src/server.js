@@ -24,7 +24,14 @@ db.connect();
 
 // --- Core Middleware ---
 app.use(helmet()); // Basic security headers
-app.use(cors()); // Enable Cross-Origin Resource Sharing
+const corsOptions = {
+  origin: process.env.NODE_ENV === 'production'
+    ? (process.env.FRONTEND_URL || 'http://localhost:3000')
+    : '*',
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions)); // Enable Cross-Origin Resource Sharing
 app.use(express.json()); // Parse JSON bodies
 app.use(express.urlencoded({ extended: true })); // Parse URL-encoded bodies
 
