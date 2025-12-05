@@ -137,8 +137,7 @@ const processGenerateStep = async (runId, job) => {
     const final_json = await generationService.optimizeStructuredData(
       text,
       run.instruction_text,
-      runId,
-      job._id
+      runId
     );
 
     // B. Calculate Final ATS Score

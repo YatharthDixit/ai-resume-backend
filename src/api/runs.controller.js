@@ -68,7 +68,7 @@ const createRun = async (req, res) => {
 
 /**
  * GET /runs/:runId/status
- * Polls for the status of a run
+ * Polls for the status of a run - simplified to return only high-level status
  */
 const getRunStatus = async (req, res) => {
   const { runId } = req.params;
@@ -78,15 +78,10 @@ const getRunStatus = async (req, res) => {
     throw new ApiError(StatusCodes.NOT_FOUND, 'Job not found.');
   }
 
-  // Format the response as per the DOC
+  // Simplified response - frontend handles section progress UI
   const response = {
     runId: job.runId,
     status: job.status,
-    step: job.step,
-    progress: {
-      total_chunks: job.meta.chunks_total,
-      completed_chunks: job.meta.chunks_completed,
-    },
     error: job.lastError?.message || null,
   };
 
