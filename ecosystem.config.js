@@ -10,7 +10,13 @@ module.exports = {
             env: {
                 NODE_ENV: 'production',
                 PORT: 8080
-            }
+            },
+            // Log configuration
+            out_file: './logs/web-out.log',
+            error_file: './logs/web-error.log',
+            log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+            merge_logs: true,
+            time: true
         },
         {
             name: 'resume-backend-worker',
@@ -22,7 +28,13 @@ module.exports = {
             env: {
                 NODE_ENV: 'production',
                 ROLE: 'worker'
-            }
+            },
+            // Log configuration
+            out_file: './logs/worker-out.log',
+            error_file: './logs/worker-error.log',
+            log_date_format: 'YYYY-MM-DD HH:mm:ss Z',
+            merge_logs: true,
+            time: true
         }
     ]
 };
