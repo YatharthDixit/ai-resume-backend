@@ -49,5 +49,8 @@ app.use(errorHandler);
 
 // --- Start Server ---
 app.listen(config.port, () => {
-  logger.info(`WEB Server listening on port ${config.port}`);
+  logger.info(`Backend Server is running!`);
+  logger.info(`PORT: ${config.port}`);
+  logger.info(`ENVIRONMENT: ${config.env}`);
+  logger.info(`Health check: http://localhost:${config.port}/api/v1/health`);
 });
