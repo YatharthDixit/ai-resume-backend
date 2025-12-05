@@ -7,10 +7,6 @@ module.exports = {
             autorestart: true,
             watch: false,
             max_memory_restart: '1G',
-            env: {
-                NODE_ENV: 'production',
-                PORT: 8080
-            },
             // Log configuration
             out_file: './logs/web-out.log',
             error_file: './logs/web-error.log',
@@ -25,10 +21,6 @@ module.exports = {
             autorestart: true,
             watch: false,
             max_memory_restart: '1G',
-            env: {
-                NODE_ENV: 'production',
-                ROLE: 'worker'
-            },
             // Log configuration
             out_file: './logs/worker-out.log',
             error_file: './logs/worker-error.log',
