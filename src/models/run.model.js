@@ -14,9 +14,6 @@ const runSchema = new mongoose.Schema(
       // Use a default function to generate the ID
       default: () => `run_${nanoid(10)}`,
     },
-    originalPdfKey: {
-      type: String,
-    },
     originalFilename: {
       type: String,
       required: true,
@@ -36,7 +33,8 @@ const runSchema = new mongoose.Schema(
     retention_until: {
       type: Date,
       required: true,
-      index: true,
+      // This index expires the document when the current time is greater than the value in this field
+      index: { expires: 0 },
       // Use a default function to set the date
       default: () => dayjs().add(config.retentionHours, 'hour').toDate(),
     },
