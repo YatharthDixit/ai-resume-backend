@@ -6,7 +6,6 @@ const Run = require('../models/run.model');
 const Process = require('../models/process.model');
 const Resume = require('../models/resume.model'); // <-- ADD THIS
 const rendererService = require('../services/renderer.service'); // <-- ADD THIS
-const pdfService = require('../services/pdf.service'); // <-- ADD THE NEW PDF SERVICE
 const ApiError = require('../utils/ApiError');
 const logger = require('../utils/logger');
 const { PROCESS_STATUS } = require('../utils/constants'); // <-- ADD THIS
@@ -125,38 +124,6 @@ const getPreviewHtml = async (req, res) => {
   res.status(StatusCodes.OK).send(htmlString);
 };
 
-/**
- * POST /runs/:runId/render-pdf
- * Generates and streams the final PDF
- */
-const renderPdf = async (req, res) => {
-  const { runId } = req.params;
-
-  // 1. Find the final resume result
-  const result = await Resume.findOne({ runId });
-  if (!result) {
-    throw new ApiError(StatusCodes.NOT_FOUND, 'Completed result not found.');
-  }
-
-  // 2. Generate the HTML string
-  const htmlString = rendererService.generateHtmlString({
-    runId,
-    ...result.final_json,
-  });
-
-  // 3. Use the PDF service to generate the buffer
-  logger.info(`[${runId}] Handing off to PDF service for generation...`);
-  const pdfBuffer = await pdfService.generatePdfBuffer(htmlString);
-  logger.info(`[${runId}] PDF buffer received from service.`);
-
-  // 4. Send the PDF as a downloadable file
-  res.setHeader('Content-Type', 'application/pdf');
-  res.setHeader(
-    'Content-Disposition',
-    'attachment; filename="optimized-resume.pdf"'
-  );
-  res.status(StatusCodes.OK).send(pdfBuffer);
-};
 
 /**
  * GET /runs/:runId/diff
@@ -193,6 +160,5 @@ module.exports = {
   createRun,
   getRunStatus,
   getPreviewHtml,
-  renderPdf,
   getDiffData, // <-- Export the new function
 };
