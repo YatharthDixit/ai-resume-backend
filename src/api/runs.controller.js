@@ -1,10 +1,10 @@
 // src/api/runs.controller.js
 const { StatusCodes } = require('http-status-codes');
 const path = require('path'); // Keep path for local storage
-const storageService = require('../services/storage.service');
 const Run = require('../models/run.model');
 const Process = require('../models/process.model');
 const Resume = require('../models/resume.model'); // <-- ADD THIS
+const Pdf = require('../models/pdf.model'); // <-- ADD THIS
 const rendererService = require('../services/renderer.service'); // <-- ADD THIS
 const ApiError = require('../utils/ApiError');
 const logger = require('../utils/logger');
@@ -26,28 +26,21 @@ const createRun = async (req, res) => {
   }
 
   // 1. Create the Run document
+  // 1. Create the Run document
   const run = new Run({
     originalFilename: req.file.originalname,
     instruction_text,
   });
 
-  // 2. Save it FIRST to get the runId
+  // 2. Save it
   await run.save();
 
-  // 3. Define the key for Blob storage (e.g., runs/{runId}/{filename})
-  const blobKey = `runs/${run.runId}/${run.originalFilename}`;
-
-  // 4. Upload to Vercel Blob
-  // storageService.upload now returns { key: url }
-  const { key: blobUrl } = await storageService.upload(
-    req.file.buffer,
-    blobKey,
-    req.file.mimetype
-  );
-
-  // 5. Add the Blob URL to the doc and save AGAIN
-  run.originalPdfKey = blobUrl;
-  await run.save();
+  // 3. Save PDF to separate collection
+  await Pdf.create({
+    runId: run.runId,
+    data: req.file.buffer,
+    mimeType: req.file.mimetype,
+  });
 
   // 6. Send message to SQS
   await sqsService.sendMessage({ runId: run.runId });

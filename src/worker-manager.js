@@ -5,8 +5,9 @@ const logger = require('./utils/logger');
 const Run = require('./models/run.model');
 const Process = require('./models/process.model');
 const Resume = require('./models/resume.model');
+const Pdf = require('./models/pdf.model'); // <-- ADD THIS
 const sqsService = require('./services/sqs.service');
-const storageService = require('./services/storage.service');
+// const storageService = require('./services/storage.service'); // REMOVED
 const parserService = require('./services/parser.service');
 const processService = require('./services/process.service');
 const generationService = require('./services/generation.service');
@@ -76,7 +77,10 @@ const processParseStep = async (runId, job) => {
     if (!run) throw new Error('Associated Run document not found.');
 
     // A. Download & Extract
-    const pdfBuffer = await storageService.download(run.originalPdfKey);
+    const pdfDoc = await Pdf.findOne({ runId });
+    if (!pdfDoc) throw new Error('PDF document not found.');
+    const pdfBuffer = pdfDoc.data;
+
     const text = await parserService.extractText(pdfBuffer);
 
     // Save text locally (legacy support + backup)
