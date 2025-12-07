@@ -63,7 +63,6 @@ module.exports = {
     url: config.MONGODB_URI,
     options: {
       // Mongoose 6+ options are simplified
-      dbName: 'resumeai',
     },
   },
 };
