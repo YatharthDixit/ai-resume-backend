@@ -22,9 +22,7 @@
     "nanoid": "5.1.6",
     "pdfjs-dist": "^5.4.449",
     "pino": "^10.1.0",
-    "puppeteer": "^24.32.0",
-    "zod": "^4.1.13",
-    "zod-express-middleware": "^1.4.0"
+    "zod": "^4.1.13"
   },
   "devDependencies": {
     "nodemon": "^3.1.11",
