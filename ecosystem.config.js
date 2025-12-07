@@ -1,7 +1,7 @@
 module.exports = {
     apps: [
         {
-            name: 'resume-backend-web',
+            name: 'web',
             script: 'src/server.js',
             instances: 1,
             autorestart: true,
@@ -15,7 +15,7 @@ module.exports = {
             time: true
         },
         {
-            name: 'resume-backend-worker',
+            name: 'worker',
             script: 'src/worker-manager.js',
             instances: 1,
             autorestart: true,
