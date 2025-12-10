@@ -18,8 +18,9 @@ const runSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    extractedTextKey: {
+    extractedText: {
       type: String,
+      select: false,
     },
     instruction_text: {
       type: String,

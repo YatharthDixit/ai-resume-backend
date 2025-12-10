@@ -13,8 +13,7 @@ const processService = require('./services/process.service');
 const generationService = require('./services/generation.service');
 const atsService = require('./services/ats.service');
 const { PROCESS_STATUS } = require('./utils/constants');
-const fs = require('fs/promises');
-const path = require('path');
+
 
 /**
  * Polls SQS for new jobs.
@@ -83,12 +82,8 @@ const processParseStep = async (runId, job) => {
 
     const text = await parserService.extractText(pdfBuffer);
 
-    // Save text locally (legacy support + backup)
-    const textDir = path.join(process.cwd(), 'extracted_details', 'runs', runId);
-    await fs.mkdir(textDir, { recursive: true });
-    const textPath = path.join(textDir, 'extracted_text.txt');
-    await fs.writeFile(textPath, text, 'utf-8');
-    run.extractedTextKey = textPath;
+    // Save text to DB
+    run.extractedText = text;
     await run.save();
 
     // B. Generate Original JSON (Structure Only)
@@ -131,11 +126,12 @@ const processGenerateStep = async (runId, job) => {
   await job.save();
 
   try {
-    const run = await Run.findOne({ runId });
+    const run = await Run.findOne({ runId }).select('+extractedText');
     const resume = await Resume.findOne({ runId });
 
-    // Read text again (or we could pass it from previous step, but stateless is safer)
-    const text = await fs.readFile(run.extractedTextKey, 'utf-8');
+    // Read text from DB
+    const text = run.extractedText;
+    if (!text) throw new Error('Extracted text not found in Run document.');
 
     // A. Optimize JSON
     const final_json = await generationService.optimizeStructuredData(
