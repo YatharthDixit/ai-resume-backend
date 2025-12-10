@@ -25,6 +25,9 @@ const runSchema = new mongoose.Schema(
     instruction_text: {
       type: String,
     },
+    job_description: {
+      type: String,
+    },
     status: {
       type: String,
       enum: Object.values(PROCESS_STATUS),

@@ -17,16 +17,14 @@ const resumeSchema = new mongoose.Schema(
     // PASS 2: The optimized, rewritten resume (Final Output)
     final_json: {
       type: Object,
-      required: true,
+      default: null,
     },
-    // ATS Score details
+    // Adding ATS Score tracking
     atsScore: {
       pre: { type: Number, default: 0 },
       post: { type: Number, default: 0 },
-    },
-    missingKeywords: {
-      type: [String],
-      default: [],
+      missingKeywords: [{ type: String }],
+      summary: { type: String }
     },
   },
   { timestamps: true }

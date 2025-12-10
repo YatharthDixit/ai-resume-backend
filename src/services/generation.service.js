@@ -1,7 +1,7 @@
 // src/services/generation.service.js
 const llmService = require('./llm.service');
-const { JSON_SCHEMA_CHUNKS } = require('../libs/llmSchemas');
-const { buildChunkPrompt, buildParsePrompt } = require('../libs/promptBuilder');
+const { JSON_SCHEMA_CHUNKS, ATS_REPORT_SCHEMA } = require('../libs/llmSchemas');
+const { buildChunkPrompt, buildParsePrompt, buildAtsReportPrompt } = require('../libs/promptBuilder');
 const logger = require('../utils/logger');
 const pLimit = require('p-limit');
 
@@ -49,10 +49,8 @@ const generateStructuredData = async (rawText, runId) => {
 /**
  * PASS 2: Optimize Structured Data (Final JSON)
  * Takes the original JSON (or raw text) and optimizes it based on instructions.
- * Note: We still use rawText + Instructions for the best LLM context, 
- * but we ensure the schema matches.
  */
-const optimizeStructuredData = async (rawText, instruction, runId) => {
+const optimizeStructuredData = async (rawText, instruction, runId, jobDescription = null) => {
   logger.info(`[${runId}] Starting Pass 2: Optimization (concurrency: 3)...`);
   const final_json = {};
   const chunkKeys = Object.keys(JSON_SCHEMA_CHUNKS);
@@ -63,7 +61,8 @@ const optimizeStructuredData = async (rawText, instruction, runId) => {
       limit(async () => {
         logger.info(`[${runId}] Optimizing chunk: ${key}`);
         const chunkSchema = JSON_SCHEMA_CHUNKS[key];
-        const prompt = buildChunkPrompt(rawText, instruction, chunkSchema);
+        // For standard chunks, we pass JD for tailoring if it exists
+        const prompt = buildChunkPrompt(rawText, instruction, chunkSchema, jobDescription);
 
         try {
           const chunkJson = await llmService.generateChunk(prompt);
@@ -86,7 +85,25 @@ const optimizeStructuredData = async (rawText, instruction, runId) => {
   return final_json;
 };
 
+/**
+ * Generates ATS Comparison Report
+ */
+const generateAtsReport = async (originalJson, finalJson, jobDescription, runId) => {
+  logger.info(`[${runId}] Generating ATS Report...`);
+  const schemaString = JSON.stringify(ATS_REPORT_SCHEMA, null, 2);
+  const prompt = buildAtsReportPrompt(originalJson, finalJson, jobDescription, schemaString);
+
+  try {
+    const result = await llmService.generateChunk(prompt);
+    return result;
+  } catch (error) {
+    logger.error(error, `[${runId}] Failed to generate ATS Report`);
+    return null;
+  }
+};
+
 module.exports = {
   generateStructuredData,
   optimizeStructuredData,
+  generateAtsReport,
 };

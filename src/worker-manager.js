@@ -11,7 +11,7 @@ const sqsService = require('./services/sqs.service');
 const parserService = require('./services/parser.service');
 const processService = require('./services/process.service');
 const generationService = require('./services/generation.service');
-const atsService = require('./services/ats.service');
+// const atsService = require('./services/ats.service'); // Disabled in favor of Gemini ATS
 const { PROCESS_STATUS } = require('./utils/constants');
 
 
@@ -86,21 +86,15 @@ const processParseStep = async (runId, job) => {
     run.extractedText = text;
     await run.save();
 
-    // B. Generate Original JSON (Structure Only)
-    const original_json = await generationService.generateStructuredData(text, runId);
+    // 4. Generate Structured Data (Pass 1)
+    const original_json = await generationService.generateStructuredData(run.extractedText, runId);
 
-    // C. Calculate Baseline ATS Score
-    const atsResult = atsService.calculateScore(text, run.instruction_text); // Using instruction as proxy for JD if not separate
-
-    // D. Save Intermediate Result
-    // We create the Resume doc here with partial data
+    // 5. Update Resume record
     await Resume.findOneAndUpdate(
       { runId },
       {
         runId,
         original_json,
-        'atsScore.pre': atsResult.score,
-        missingKeywords: atsResult.missingKeywords
       },
       { upsert: true, new: true }
     );
@@ -133,26 +127,40 @@ const processGenerateStep = async (runId, job) => {
     const text = run.extractedText;
     if (!text) throw new Error('Extracted text not found in Run document.');
 
-    // A. Optimize JSON
+    // 3. Optimize (Pass 2)
+    // Note: We use the extracted text as context + the specific instruction
     const final_json = await generationService.optimizeStructuredData(
-      text,
-      run.instruction_text,
-      runId
+      run.extractedText,
+      run.instruction_text, 
+      runId,
+      run.job_description // Pass JD if it exists
     );
 
-    // B. Calculate Final ATS Score
-    // We convert final_json back to text roughly to score it, or just score the bullets?
-    // For MVP, let's score the raw text of the final json
-    const finalString = JSON.stringify(final_json);
-    const atsResult = atsService.calculateScore(finalString, run.instruction_text);
+    // 4. Save Final JSON
+    await Resume.findOneAndUpdate({ runId }, { final_json });
 
-    // C. Save Final Result
-    resume.final_json = final_json;
-    resume.atsScore.post = atsResult.score;
-    // We keep the missing keywords from the original check or update them? 
-    // Usually we want to see what's STILL missing.
-    resume.missingKeywords = atsResult.missingKeywords;
-    await resume.save();
+    // 5. Generate ATS Report (If JD exists)
+    if (run.job_description) {
+      // Need to fetch original_json for comparison
+      // (resume variable already has it, but let's be safe and use what we have)
+      const original_json = resume.original_json;
+
+      const atsReport = await generationService.generateAtsReport(
+        original_json,
+        final_json,
+        run.job_description, 
+          runId
+        );
+
+      if (atsReport) {
+        await Resume.findOneAndUpdate({ runId }, {
+          'atsScore.pre': atsReport.originalScore || 0,
+          'atsScore.post': atsReport.generatedScore || 0,
+          'atsScore.missingKeywords': atsReport.missingKeywords || [],
+          'atsScore.summary': atsReport.changesSummary || ''
+        });
+      }
+    }
 
     // D. Complete Job
     await processService.completeGenerateJob(job._id);

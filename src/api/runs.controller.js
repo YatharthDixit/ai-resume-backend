@@ -19,21 +19,18 @@ const { PROCESS_STATUS } = require('../utils/constants'); // <-- ADD THIS
 const sqsService = require('../services/sqs.service'); // Import SQS service
 
 const createRun = async (req, res) => {
-  const { instruction_text } = req.body;
+  const { instruction_text, job_description } = req.body;
 
   if (!req.file) {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'A PDF file is required.');
   }
 
   // 1. Create the Run document
-  // 1. Create the Run document
-  const run = new Run({
+  const run = await Run.create({
     originalFilename: req.file.originalname,
     instruction_text,
+    job_description,
   });
-
-  // 2. Save it
-  await run.save();
 
   // 3. Save PDF to separate collection
   await Pdf.create({
