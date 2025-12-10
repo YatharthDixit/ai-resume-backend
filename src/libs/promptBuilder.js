@@ -1,7 +1,7 @@
 // src/libs/promptBuilder.js
 
 function buildChunkPrompt(candidateText, instruction, chunkSchemaString, jobDescription = null) {
-// STANDARD GENERATION
+  // STANDARD GENERATION
   return `You are an expert resume parser and optimizer.
 1. Read the following resume text.
 2. Apply this specific user instruction: "${instruction}".
@@ -32,7 +32,7 @@ function buildParsePrompt(candidateText, chunkSchemaString) {
 3. Do NOT optimize, rewrite, or improve the content. Keep it as close to the original as possible.
 4. If a field is not present, return empty.
 5. **FORMATTING**: Ensure all strings are properly escaped. Do not include unescaped newlines or special characters inside JSON string values.
-6. **STRICT OUTPUT**: Return ONLY the JSON object. Do not include any conversational text, markdown formatting, or explanations outside the JSON.
+6. **STRICT OUTPUT**: Return ONLY the JSON object.
 
 JSON SCHEMA:${chunkSchemaString}
 
@@ -42,7 +42,32 @@ JSON SCHEMA:${chunkSchemaString}
 Return *only* the populated JSON object.`;
 }
 
+function buildAtsReportPrompt(originalJson, finalJson, jobDescription, reportSchemaString) {
+  return `You are an expert Applicant Tracking System (ATS) evaluator.
+
+YOUR TASK:
+1. Compare the ORIGINAL RESUME and the GENERATED RESUME against the JOB DESCRIPTION.
+2. Calculate a match score (0-100) for BOTH versions.
+3. Identify what improvements were made in the generated version.
+4. Identify what important keywords are still missing in the generated version.
+
+JOB DESCRIPTION:
+${jobDescription}
+
+ORIGINAL RESUME (JSON):
+${JSON.stringify(originalJson).slice(0, 15000)}
+
+GENERATED RESUME (JSON):
+${JSON.stringify(finalJson).slice(0, 15000)}
+
+JSON SCHEMA:
+${reportSchemaString}
+
+Return *only* the populated JSON object matching the schema.`;
+}
+
 module.exports = {
   buildChunkPrompt,
   buildParsePrompt,
+  buildAtsReportPrompt,
 };
