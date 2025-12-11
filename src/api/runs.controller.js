@@ -132,15 +132,21 @@ const getDiffData = async (req, res) => {
     throw new ApiError(StatusCodes.BAD_REQUEST, 'Processing not complete. Diff unavailable.');
   }
 
+  // Fetch Run to check if there was a job description
+  const run = await Run.findOne({ runId });
+  const hasJobDescription = !!run?.job_description;
+
   res.status(StatusCodes.OK).send({
     success: true,
     data: {
       original: result.original_json,
       optimized: result.final_json,
+      hasJobDescription,
       ats: {
         pre: result.atsScore?.pre || 0,
         post: result.atsScore?.post || 0,
-        missingKeywords: result.missingKeywords || [],
+        missingKeywords: result.atsScore?.missingKeywords || [],
+        summary: result.atsScore?.summary || '',
       },
     },
   });

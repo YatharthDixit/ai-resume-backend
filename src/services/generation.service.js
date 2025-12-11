@@ -25,13 +25,8 @@ const generateStructuredData = async (rawText, runId) => {
         const chunkSchema = JSON_SCHEMA_CHUNKS[key];
         const prompt = buildParsePrompt(rawText, chunkSchema);
 
-        try {
-          const chunkJson = await llmService.generateChunk(prompt);
-          return { key, chunkJson, error: null };
-        } catch (error) {
-          logger.error(error, `[${runId}] Failed to parse chunk: ${key}`);
-          return { key, chunkJson: null, error };
-        }
+        const chunkJson = await llmService.generateChunk(prompt);
+        return { key, chunkJson };
       })
     )
   );
@@ -64,13 +59,8 @@ const optimizeStructuredData = async (rawText, instruction, runId, jobDescriptio
         // For standard chunks, we pass JD for tailoring if it exists
         const prompt = buildChunkPrompt(rawText, instruction, chunkSchema, jobDescription);
 
-        try {
-          const chunkJson = await llmService.generateChunk(prompt);
-          return { key, chunkJson, error: null };
-        } catch (error) {
-          logger.error(error, `[${runId}] Failed to optimize chunk: ${key}`);
-          return { key, chunkJson: null, error };
-        }
+        const chunkJson = await llmService.generateChunk(prompt);
+        return { key, chunkJson };
       })
     )
   );
