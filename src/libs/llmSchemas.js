@@ -67,6 +67,31 @@ const JSON_SCHEMA_CHUNKS = {
   }`,
 };
 
+const ATS_REPORT_SCHEMA = {
+  type: 'object',
+  properties: {
+    originalScore: {
+      type: 'number',
+      description: 'ATS match score (0-100) for the ORIGINAL resume against the JD.'
+    },
+    generatedScore: {
+      type: 'number',
+      description: 'ATS match score (0-100) for the NEW GENERATED resume against the JD.'
+    },
+    missingKeywords: {
+      type: 'array',
+      items: { type: 'string' },
+      description: 'Important keywords from the JD that are still missing or weak in the generated resume.'
+    },
+    changesSummary: {
+      type: 'string',
+      description: 'A brief summary of the key improvements made to better match the JD.'
+    }
+  },
+  required: ['originalScore', 'generatedScore', 'missingKeywords', 'changesSummary']
+};
+
 module.exports = {
   JSON_SCHEMA_CHUNKS,
+  ATS_REPORT_SCHEMA,
 };
