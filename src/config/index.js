@@ -23,6 +23,8 @@ const envSchema = z.object({
   LLM_API_KEYS: z.string().min(1, 'LLM_API_KEYS is required'),
   LLM_MODEL: z.string().default('gemini-1.5-flash'),
   LLM_TIMEOUT_MS: z.coerce.number().default(60000),
+  OPENROUTER_API_KEY: z.string().default(''),
+  OPENROUTER_MODEL: z.string().default('openai/gpt-4o'),
 });
 
 // Parse and validate
@@ -52,6 +54,10 @@ module.exports = {
     timeout: config.LLM_TIMEOUT_MS,
     // Split comma-separated keys into an array
     apiKeys: config.LLM_API_KEYS.split(','),
+  },
+  openRouter: {
+    apiKey: config.OPENROUTER_API_KEY,
+    model: config.OPENROUTER_MODEL,
   },
   aws: {
     region: config.AWS_REGION,
