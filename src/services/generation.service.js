@@ -1,5 +1,6 @@
 // src/services/generation.service.js
-const llmService = require('./llm.service');
+const llmService = require('./openrouter.service');
+
 const { JSON_SCHEMA_CHUNKS, ATS_REPORT_SCHEMA } = require('../libs/llmSchemas');
 const { buildChunkPrompt, buildParsePrompt, buildAtsReportPrompt } = require('../libs/promptBuilder');
 const logger = require('../utils/logger');
