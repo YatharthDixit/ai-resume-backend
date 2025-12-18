@@ -21,6 +21,7 @@ const callOpenRouterWithRetry = async (url, body, attempt = 1) => {
   }
 
   try {
+    // logger.info(`[OpenRouter] Sending request to: ${url} | Model: ${body.model}`);
     return await axios.post(url, body, {
       headers: {
         'Authorization': `Bearer ${apiKey}`,
@@ -31,6 +32,7 @@ const callOpenRouterWithRetry = async (url, body, attempt = 1) => {
       timeout: config.llm.timeout, // Reuse LLM timeout or create a new one? Using LLM timeout for consistency.
     });
   } catch (error) {
+    logger.error(error, `[OpenRouter] API call failed`);
     // If we have exhausted retries, throw the error
     if (attempt >= MAX_RETRIES) {
       throw error;
@@ -81,61 +83,74 @@ const callOpenRouterWithRetry = async (url, body, attempt = 1) => {
   }
 };
 
+// Limit global concurrent requests to OpenRouter to prevent 429 errors
+// Free tier is sensitive. 2 concurrent requests is safer.
+const pLimit = require('p-limit');
+const globalLimit = pLimit(2); 
+
 /**
  * Calls the OpenRouter API with a specific prompt.
+ * Wrapped in globalLimit to throttle requests.
  */
-const generateChunk = async (prompt) => {
-  const url = 'https://openrouter.ai/api/v1/chat/completions';
+const generateChunk = (prompt) => {
+  return globalLimit(async () => {
+    const url = 'https://openrouter.ai/api/v1/chat/completions';
 
-  const body = {
-    model: config.openRouter.model,
-    messages: [
-      {
-        role: 'user',
-        content: prompt,
-      },
-    ],
-    response_format: { type: 'json_object' },
-  };
+    // Log queue status (approximate) - Debugging only
+    // const activeCount = globalLimit.activeCount;
+    // const pendingCount = globalLimit.pendingCount;
+    // logger.info(`[OpenRouter] Queue Status: ${activeCount} active, ${pendingCount} pending`);
 
-  try {
-    const response = await callOpenRouterWithRetry(url, body);
-
-    // Validate response structure
-    const choice = response.data?.choices?.[0];
-
-    if (!choice?.message?.content) {
-      throw new Error(`Invalid response structure from OpenRouter API.`);
-    }
-
-    // Check finish reason if available
-    if (choice.finish_reason === 'content_filter') {
-        throw new ApiError(StatusCodes.BAD_REQUEST, `AI Generation Blocked. Reason: Content Filter`);
-    }
-
-    let contentText = choice.message.content;
-
-    // Sanitize: Remove markdown code blocks if present
-    contentText = contentText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+    const body = {
+      model: config.openRouter.model,
+      messages: [
+        {
+          role: 'user',
+          content: prompt,
+        },
+      ],
+      response_format: { type: 'json_object' },
+    };
 
     try {
-      return JSON.parse(contentText);
-    } catch (parseError) {
-      // If we got here, the AI gave us malformed JSON. 
-      logger.error({ contentText }, 'Failed to parse JSON from OpenRouter');
-      throw new Error(`JSON Parse Error: ${parseError.message}`);
-    }
+      const response = await callOpenRouterWithRetry(url, body);
 
-  } catch (error) {
-    if (error instanceof ApiError) {
-      throw error;
+      // Validate response structure
+      const choice = response.data?.choices?.[0];
+
+      if (!choice?.message?.content) {
+        throw new Error(`Invalid response structure from OpenRouter API.`);
+      }
+
+      // Check finish reason if available
+      if (choice.finish_reason === 'content_filter') {
+        throw new ApiError(StatusCodes.BAD_REQUEST, `AI Generation Blocked. Reason: Content Filter`);
+      }
+
+      let contentText = choice.message.content;
+
+      // Sanitize: Remove markdown code blocks if present
+      contentText = contentText.replace(/^```json\s*/, '').replace(/\s*```$/, '');
+
+      try {
+        return JSON.parse(contentText);
+      } catch (parseError) {
+        // If we got here, the AI gave us malformed JSON. 
+        logger.error({ contentText }, 'Failed to parse JSON from OpenRouter');
+        throw new Error(`JSON Parse Error: ${parseError.message}`);
+      }
+
+    } catch (error) {
+      if (error instanceof ApiError) {
+        throw error;
+      }
+      logger.error(error.response?.data || error.message, 'OpenRouter API call failed');
+      throw new ApiError(
+        error.response?.status || StatusCodes.INTERNAL_SERVER_ERROR,
+        `OpenRouter API Error: ${error.message}`
+      );
     }
-    logger.error(error.response?.data || error.message, 'OpenRouter API call failed');
-    throw new ApiError(
-      error.response?.status || StatusCodes.INTERNAL_SERVER_ERROR,
-      `OpenRouter API Error: ${error.message}`
-    );
-  }
+  });
 };
 
 module.exports = {
