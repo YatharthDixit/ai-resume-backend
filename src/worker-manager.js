@@ -2,181 +2,112 @@
 const config = require('./config');
 const db = require('./config/db');
 const logger = require('./utils/logger');
-const Run = require('./models/run.model');
-const Process = require('./models/process.model');
-const Resume = require('./models/resume.model');
-const Pdf = require('./models/pdf.model'); // <-- ADD THIS
 const sqsService = require('./services/sqs.service');
-// const storageService = require('./services/storage.service'); // REMOVED
-const parserService = require('./services/parser.service');
-const processService = require('./services/process.service');
-const generationService = require('./services/generation.service');
-// const atsService = require('./services/ats.service'); // Disabled in favor of Gemini ATS
-const { PROCESS_STATUS } = require('./utils/constants');
+const workerService = require('./services/worker.service');
 
+// Configuration
+const MAX_CONCURRENT_JOBS = process.env.WORKER_POOL_SIZE || 5;
+let activeJobs = 0;
 
 /**
- * Polls SQS for new jobs.
+ * Processes a single message.
+ * 1. Increment active count.
+ * 2. Process logic.
+ * 3. ACK (Delete) message regardless of success/failure to prevent loops.
+ * 4. Decrement active count & trigger poll.
  */
-const pollSQS = async () => {
+const processJob = async (message) => {
+  activeJobs++;
+
   try {
-    const messages = await sqsService.receiveMessage(1, 20);
+    await workerService.handleMessage(message);
 
-    if (messages && messages.length > 0) {
-      const message = messages[0];
-      const { runId } = JSON.parse(message.Body);
+    // Success: Delete message
+    await sqsService.deleteMessage(message.ReceiptHandle);
+    logger.info(`[Msg Processed] Deleted from SQS.`);
+  } catch (err) {
+    logger.error(err, 'Job Processing Failed');
 
-      logger.info(`[${runId}] Received job from SQS`);
-
-      let job = await Process.findOne({ runId });
-      if (!job) {
-        job = await Process.create({ runId, status: PROCESS_STATUS.PENDING });
-      }
-
-      try {
-        // TWO-PASS ARCHITECTURE
-
-        // 1. PARSE STEP (Extract + Structure + ATS Baseline)
-        if (job.status === PROCESS_STATUS.PENDING || job.status === PROCESS_STATUS.PARSING) {
-          await processParseStep(runId, job);
-        }
-
-        // 2. GENERATE STEP (Optimize + ATS Final)
-        // Reload job to check status
-        job = await Process.findOne({ runId });
-        if (job.status === PROCESS_STATUS.PARSED || job.status === PROCESS_STATUS.GENERATING) {
-          await processGenerateStep(runId, job);
-        }
-
-        // 3. Cleanup
-        await sqsService.deleteMessage(message.ReceiptHandle);
-        logger.info(`[${runId}] Job completed and removed from SQS.`);
-
-      } catch (err) {
-        logger.error(err, `[${runId}] Job failed`);
-        // Don't delete message on failure to allow retry (unless fatal)
-      }
+    // Failure: Delete message to prevent "death spiral" (infinite retries of bad jobs)
+    try {
+      await sqsService.deleteMessage(message.ReceiptHandle);
+      logger.info('Failed message deleted from SQS to clean queue.');
+    } catch (deleteErr) {
+      logger.error(deleteErr, 'Failed to delete failed message');
     }
-  } catch (error) {
-    logger.error(error, 'SQS Polling Error');
+  } finally {
+    activeJobs--;
+    // Immediately poll to fill the slot we just freed
+    poll();
   }
 };
 
 /**
- * PASS 1: Parse Step
- * Downloads PDF, Extracts Text, Generates Original JSON, Calculates Baseline ATS Score.
+ * Main Polling Loop
+ * Recursive function that checks concurrency limits before fetching.
  */
-const processParseStep = async (runId, job) => {
-  logger.info(`[${runId}] Starting Pass 1: Parse...`);
-  job.status = PROCESS_STATUS.PARSING;
-  await job.save();
-
-  try {
-    const run = await Run.findOne({ runId });
-    if (!run) throw new Error('Associated Run document not found.');
-
-    // A. Download & Extract
-    const pdfDoc = await Pdf.findOne({ runId });
-    if (!pdfDoc) throw new Error('PDF document not found.');
-    const pdfBuffer = pdfDoc.data;
-
-    const text = await parserService.extractText(pdfBuffer);
-
-    // Save text to DB
-    run.extractedText = text;
-    await run.save();
-
-    // 4. Generate Structured Data (Pass 1)
-    const original_json = await generationService.generateStructuredData(run.extractedText, runId);
-
-    // 5. Update Resume record
-    await Resume.findOneAndUpdate(
-      { runId },
-      {
-        runId,
-        original_json,
-      },
-      { upsert: true, new: true }
-    );
-
-    job.status = PROCESS_STATUS.PARSED;
-    await job.save();
-    logger.info(`[${runId}] Pass 1 Complete.`);
-  } catch (error) {
-    job.status = PROCESS_STATUS.FAILED;
-    job.lastError = { message: error.message, stack: error.stack };
-    await job.save();
-    throw error;
+const poll = async () => {
+  // 1. Check Concurrency Limit
+  if (activeJobs >= MAX_CONCURRENT_JOBS) {
+    return; // Limit reached. Do nothing. 'processJob' will call poll() when it's done.
   }
-};
 
-/**
- * PASS 2: Generate Step
- * Optimizes the content using User Instructions.
- */
-const processGenerateStep = async (runId, job) => {
-  logger.info(`[${runId}] Starting Pass 2: Generate...`);
-  job.status = PROCESS_STATUS.GENERATING;
-  await job.save();
+  // 2. Calculate Batch Size
+  const slotsAvailable = MAX_CONCURRENT_JOBS - activeJobs;
+  const batchSize = Math.min(slotsAvailable, 10); // SQS max is 10
+
+  if (batchSize <= 0) return;
 
   try {
-    const run = await Run.findOne({ runId }).select('+extractedText');
-    const resume = await Resume.findOne({ runId });
+    // 3. Fetch Messages (Long Polling: 20s)
+    // Note: This call blocks asynchronously while waiting for SQS, but doesn't block CPU.
+    const messages = await sqsService.receiveMessage(batchSize, 20);
 
-    // Read text from DB
-    const text = run.extractedText;
-    if (!text) throw new Error('Extracted text not found in Run document.');
-
-    // 3. Optimize (Pass 2)
-    // Note: We use the extracted text as context + the specific instruction
-    const final_json = await generationService.optimizeStructuredData(
-      run.extractedText,
-      run.instruction_text, 
-      runId,
-      run.job_description // Pass JD if it exists
-    );
-
-    // 4. Save Final JSON
-    await Resume.findOneAndUpdate({ runId }, { final_json });
-
-    // 5. Generate ATS Report (If JD exists)
-    if (run.job_description) {
-      // Need to fetch original_json for comparison
-      // (resume variable already has it, but let's be safe and use what we have)
-      const original_json = resume.original_json;
-
-      const atsReport = await generationService.generateAtsReport(
-        original_json,
-        final_json,
-        run.job_description, 
-          runId
-        );
-
-      if (atsReport) {
-        await Resume.findOneAndUpdate({ runId }, {
-          'atsScore.pre': atsReport.originalScore || 0,
-          'atsScore.post': atsReport.generatedScore || 0,
-          'atsScore.missingKeywords': atsReport.missingKeywords || [],
-          'atsScore.summary': atsReport.changesSummary || ''
-        });
-      }
+    if (!messages || messages.length === 0) {
+      // Queue empty or timeout. Poll again immediately.
+      setImmediate(poll);
+      return;
     }
 
-    // D. Complete Job
-    await processService.completeGenerateJob(job._id);
-    logger.info(`[${runId}] Pass 2 Complete. Job Finished.`);
-  } catch (error) {
-    await processService.failJob(job._id, error);
-    throw error;
+    // 4. Dispatch Jobs (Async / Fire & Forget)
+    messages.forEach((message) => {
+      // We do NOT await here. We want them running in parallel.
+      processJob(message);
+    });
+
+    // 5. Poll again?
+    // If we filled our slots, the recursive calls from 'processJob' completion will keep it going.
+    // But if we still have slots (e.g. we asked for 5, got 2), we should try to fill the rest?
+    // For simplicity, let's just loop back.
+    if (activeJobs < MAX_CONCURRENT_JOBS) {
+      setImmediate(poll);
+    }
+
+  } catch (err) {
+    logger.error(err, 'Polling Error');
+    // Backoff on error
+    setTimeout(poll, 5000);
   }
 };
 
 const main = async () => {
   await db.connect();
-  logger.info('WORKER started. Polling SQS...');
-  while (true) {
-    await pollSQS();
+
+  if (!config.aws.sqsQueueUrl) {
+    logger.error('SQS Queue URL is missing. Worker cannot start.');
+    process.exit(1);
   }
+
+  logger.info(`Starting Custom Worker Poller. concurrency=${MAX_CONCURRENT_JOBS}`);
+  poll();
+
+  const shutdown = () => {
+    logger.info('Shutting down...');
+    process.exit(0);
+  };
+
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 };
 
 main().catch((err) => {

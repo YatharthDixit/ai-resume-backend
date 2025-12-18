@@ -14,6 +14,10 @@ class SQSService {
         this.queueUrl = config.aws.sqsQueueUrl;
     }
 
+    get client() {
+        return this.sqsClient;
+    }
+
     /**
      * Sends a message to the SQS queue.
      * @param {Object} body - The message body (will be JSON stringified).
