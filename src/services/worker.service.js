@@ -7,6 +7,7 @@ const parserService = require('./parser.service');
 const processService = require('./process.service');
 const generationService = require('./generation.service');
 const { PROCESS_STATUS } = require('../utils/constants');
+const mixpanel = require('../libs/mixpanel');
 
 class WorkerService {
   /**
@@ -135,6 +136,39 @@ class WorkerService {
 
       // 4. Generate Structured Data (Pass 1)
       const original_json = await generationService.generateStructuredData(run.extractedText, runId);
+
+      // --- Mixpanel Tracking Start ---
+      if (mixpanel && original_json && original_json.header) {
+        try {
+          const { name, contactInfo } = original_json.header;
+          const email = contactInfo?.email;
+          const phone = contactInfo?.phone;
+          const linkedin = contactInfo?.linkedin;
+
+          if (email) {
+            // Identify user by email
+            mixpanel.people.set(email, {
+              $name: name,
+              $email: email,
+              $phone: phone,
+              linkedin: linkedin,
+              $created: new Date().toISOString(),
+            });
+
+            mixpanel.track('Resume Parsed', {
+              distinct_id: email,
+              runId: runId,
+              hasPhone: !!phone,
+              hasLinkedin: !!linkedin,
+            });
+          } else {
+            logger.info(`[${runId}] Mixpanel skipped: No email found in resume.`);
+          }
+        } catch (mpError) {
+          logger.error(mpError, `[${runId}] Mixpanel tracking failed (non-blocking)`);
+        }
+      }
+      // --- Mixpanel Tracking End ---
 
       // 5. Update Resume record
       await Resume.findOneAndUpdate(

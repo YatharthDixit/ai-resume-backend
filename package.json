@@ -16,6 +16,7 @@
     "express": "^5.2.1",
     "helmet": "^8.1.0",
     "http-status-codes": "^2.3.0",
+    "mixpanel": "^0.19.1",
     "mongoose": "^9.0.1",
     "multer": "^2.0.2",
     "nanoid": "5.1.6",
